@@ -1,3 +1,4 @@
+#include "cloakdns/blocklist.hpp"
 #include "cloakdns/dns_parser.hpp"
 #include "cloakdns/dns_writer.hpp"
 
@@ -10,9 +11,10 @@
 #include <array>
 #include <cstddef>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <span>
-#include <string_view>
+#include <string>
 
 using asio::awaitable;
 using asio::co_spawn;
@@ -23,18 +25,18 @@ using asio::ip::udp;
 
 namespace {
 
-constexpr std::string_view kBlockedDomain = "ads.test";
 constexpr uint16_t kTypeA = 1;
 
-bool should_block(const cloak::DnsMessage& msg) {
-    return msg.questions.size() == 1
-        && msg.questions[0].qname == kBlockedDomain
-        && msg.questions[0].qtype == kTypeA;
+cloak::MatchResult decide(const cloak::DnsMessage& msg,
+                          const cloak::Blocklist& bl) {
+    if (msg.questions.size() != 1 || msg.questions[0].qtype != kTypeA)
+        return {};
+    return bl.match(msg.questions[0].qname);
 }
 
 } // namespace
 
-awaitable<void> serve(udp::socket sock) {
+awaitable<void> serve(udp::socket sock, const cloak::Blocklist& blocklist) {
     std::array<std::byte, 4096> buf;
     for (;;) {
         udp::endpoint from;
@@ -45,14 +47,21 @@ awaitable<void> serve(udp::socket sock) {
 
         try {
             const auto msg = cloak::parse(query);
-            const auto response = should_block(msg)
+            const auto hit = decide(msg, blocklist);
+
+            const auto response = hit.blocked
                 ? cloak::build_block_a_response(query, msg)
                 : cloak::build_refused_response(query, msg);
 
-            std::cout << (should_block(msg) ? "block " : "refuse ")
-                      << (msg.questions.empty() ? "<no-question>"
-                                                : msg.questions[0].qname)
-                      << " from " << from << std::endl;
+            const auto& qname = msg.questions.empty()
+                ? std::string{"<no-question>"}
+                : msg.questions[0].qname;
+            if (hit.blocked) {
+                std::cout << "block  " << qname
+                          << "  via " << hit.rule << std::endl;
+            } else {
+                std::cout << "refuse " << qname << std::endl;
+            }
 
             co_await sock.async_send_to(
                 asio::buffer(response), from, use_awaitable);
@@ -63,14 +72,22 @@ awaitable<void> serve(udp::socket sock) {
     }
 }
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        const std::filesystem::path blocklist_path =
+            argc > 1 ? std::filesystem::path{argv[1]}
+                     : std::filesystem::path{"blocklists/tier1.txt"};
+
+        cloak::Blocklist blocklist;
+        const auto n = blocklist.load_hosts_file(blocklist_path);
+        std::cout << "loaded " << n << " rules from "
+                  << blocklist_path << std::endl;
+
         asio::io_context ctx;
         udp::socket sock{ctx,
             udp::endpoint{make_address("127.0.0.1"), 5354}};
 
         std::cout << "cloakdns listening on 127.0.0.1:5354" << std::endl;
-        std::cout << "blocking: " << kBlockedDomain << std::endl;
 
         asio::signal_set signals{ctx, SIGINT, SIGTERM};
         signals.async_wait([&](const std::error_code&, int) {
@@ -78,7 +95,7 @@ int main() {
             ctx.stop();
         });
 
-        co_spawn(ctx, serve(std::move(sock)), detached);
+        co_spawn(ctx, serve(std::move(sock), std::ref(blocklist)), detached);
         ctx.run();
         return 0;
     } catch (const std::exception& e) {

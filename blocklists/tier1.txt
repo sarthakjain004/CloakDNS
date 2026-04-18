@@ -1,0 +1,29 @@
+# CloakDNS starter blocklist -- Tier 1 + Tier 2 from CLAUDE.md
+# Derived from Englehardt & Narayanan (CCS 2016), Acar et al. (CCS 2014),
+# Roesner et al. (NSDI 2012). See papers/ for sources.
+
+# Tier 1 -- syncing hubs, >5% of top sites
+0.0.0.0 doubleclick.net
+0.0.0.0 google-analytics.com
+0.0.0.0 googlesyndication.com
+0.0.0.0 googleadservices.com
+0.0.0.0 facebook.net
+0.0.0.0 fbcdn.net
+0.0.0.0 adnxs.com
+0.0.0.0 scorecardresearch.com
+
+# Tier 2 -- major trackers, 1-5% of top sites
+0.0.0.0 rubiconproject.com
+0.0.0.0 openx.net
+0.0.0.0 turn.com
+0.0.0.0 mathtag.com
+0.0.0.0 advertising.com
+0.0.0.0 adsrvr.org
+0.0.0.0 mookie1.com
+0.0.0.0 crwdcntrl.net
+0.0.0.0 media6degrees.com
+0.0.0.0 gemius.pl
+0.0.0.0 2o7.net
+0.0.0.0 omtrdc.net
+0.0.0.0 rlcdn.com
+0.0.0.0 adverticum.net
