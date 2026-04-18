@@ -137,6 +137,7 @@ DnsMessage parse(std::span<const std::byte> packet) {
         cursor += 4;
         msg.questions.push_back(std::move(q));
     }
+    msg.question_section_end = cursor;
 
     parse_rr_section(packet, cursor, msg.header.ancount, msg.answers);
     parse_rr_section(packet, cursor, msg.header.nscount, msg.authority);

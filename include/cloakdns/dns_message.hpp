@@ -43,6 +43,10 @@ struct DnsMessage {
     std::vector<ResourceRecord> answers;
     std::vector<ResourceRecord> authority;
     std::vector<ResourceRecord> additional;
+
+    // Absolute byte offset in the source packet immediately after the
+    // last question. Used by the writer to splice responses.
+    size_t question_section_end{};
 };
 
 } // namespace cloak

@@ -30,7 +30,8 @@ if(WIN32)
 endif()
 
 add_library(cloak_dns_core STATIC
-    src/dns_parser.cpp)
+    src/dns_parser.cpp
+    src/dns_writer.cpp)
 target_include_directories(cloak_dns_core PUBLIC include)
 target_compile_features(cloak_dns_core PUBLIC cxx_std_20)
 

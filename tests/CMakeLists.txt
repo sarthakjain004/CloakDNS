@@ -7,7 +7,7 @@ FetchContent_Declare(googletest
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
-add_executable(cloak_tests test_dns_parser.cpp)
+add_executable(cloak_tests test_dns_parser.cpp test_dns_writer.cpp)
 target_include_directories(cloak_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cloak_tests PRIVATE cloak_dns_core GTest::gtest_main)
 
