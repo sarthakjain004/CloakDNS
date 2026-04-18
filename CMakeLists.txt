@@ -29,9 +29,17 @@ if(WIN32)
         _WIN32_WINNT=0x0A00)
 endif()
 
+add_library(cloak_dns_core STATIC
+    src/dns_parser.cpp)
+target_include_directories(cloak_dns_core PUBLIC include)
+target_compile_features(cloak_dns_core PUBLIC cxx_std_20)
+
 add_executable(cloakdns src/main.cpp)
-target_link_libraries(cloakdns PRIVATE asio_headers)
+target_link_libraries(cloakdns PRIVATE asio_headers cloak_dns_core)
 
 if(WIN32)
     target_link_libraries(cloakdns PRIVATE ws2_32 mswsock)
 endif()
+
+enable_testing()
+add_subdirectory(tests)

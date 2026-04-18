@@ -18,5 +18,6 @@ docs/
 papers/
 DNSQuerySniffer/
 learnings/
+results/
 
 .claude/settings.local.json
