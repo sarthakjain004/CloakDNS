@@ -85,4 +85,15 @@ build_refused_response(std::span<const std::byte> query,
     return out;
 }
 
+std::vector<std::byte>
+build_servfail_response(std::span<const std::byte> query,
+                        const DnsMessage& parsed) {
+    const size_t q_end = parsed.question_section_end;
+    std::vector<std::byte> out(q_end);
+
+    write_response_header(out, query, /*ancount=*/0, /*rcode=*/2);
+    copy_question_bytes(out, query, q_end);
+    return out;
+}
+
 } // namespace cloak

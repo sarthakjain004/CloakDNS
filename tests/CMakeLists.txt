@@ -10,7 +10,8 @@ FetchContent_MakeAvailable(googletest)
 add_executable(cloak_tests
     test_dns_parser.cpp
     test_dns_writer.cpp
-    test_blocklist.cpp)
+    test_blocklist.cpp
+    test_upstream.cpp)
 target_include_directories(cloak_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(cloak_tests PRIVATE
     CLOAK_TEST_BLOCKLIST="${CMAKE_SOURCE_DIR}/blocklists/tier1.txt")

@@ -20,4 +20,9 @@ std::vector<std::byte>
 build_refused_response(std::span<const std::byte> query,
                        const DnsMessage& parsed);
 
+// Build a SERVFAIL response (RCODE=2, no answers) for a parsed query.
+std::vector<std::byte>
+build_servfail_response(std::span<const std::byte> query,
+                        const DnsMessage& parsed);
+
 } // namespace cloak

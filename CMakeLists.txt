@@ -32,16 +32,18 @@ endif()
 add_library(cloak_dns_core STATIC
     src/dns_parser.cpp
     src/dns_writer.cpp
-    src/blocklist.cpp)
+    src/blocklist.cpp
+    src/upstream.cpp)
 target_include_directories(cloak_dns_core PUBLIC include)
 target_compile_features(cloak_dns_core PUBLIC cxx_std_20)
-
-add_executable(cloakdns src/main.cpp)
-target_link_libraries(cloakdns PRIVATE asio_headers cloak_dns_core)
+target_link_libraries(cloak_dns_core PUBLIC asio_headers)
 
 if(WIN32)
-    target_link_libraries(cloakdns PRIVATE ws2_32 mswsock)
+    target_link_libraries(cloak_dns_core PUBLIC ws2_32 mswsock)
 endif()
+
+add_executable(cloakdns src/main.cpp)
+target_link_libraries(cloakdns PRIVATE cloak_dns_core)
 
 enable_testing()
 add_subdirectory(tests)
