@@ -104,6 +104,11 @@ void parse_rr_section(std::span<const std::byte> pkt, size_t& cursor,
 
 } // namespace
 
+std::string decode_name_at(std::span<const std::byte> pkt, size_t offset) {
+    size_t cursor = offset;
+    return decode_name(pkt, cursor);
+}
+
 DnsMessage parse(std::span<const std::byte> packet) {
     if (packet.size() < kHeaderSize)
         throw ParseError{"truncated header"};

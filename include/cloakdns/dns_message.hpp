@@ -8,6 +8,13 @@
 
 namespace cloak {
 
+namespace dns_type {
+inline constexpr uint16_t A     = 1;
+inline constexpr uint16_t CNAME = 5;
+inline constexpr uint16_t AAAA  = 28;
+inline constexpr uint16_t OPT   = 41;  // EDNS0 — "TTL" field is extended rcode + flags, not a lifetime
+} // namespace dns_type
+
 struct Header {
     uint16_t id{};
     bool qr{};

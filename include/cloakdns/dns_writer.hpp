@@ -3,7 +3,9 @@
 #include "cloakdns/dns_message.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace cloak {
@@ -24,5 +26,11 @@ build_refused_response(std::span<const std::byte> query,
 std::vector<std::byte>
 build_servfail_response(std::span<const std::byte> query,
                         const DnsMessage& parsed);
+
+// Build a standard outgoing A IN query for the given qname with flags
+// RD=1. Throws std::invalid_argument on an empty/oversized/malformed
+// qname. The uncloaker uses this to re-query intermediate CNAME hops.
+std::vector<std::byte>
+build_a_query(std::string_view qname, uint16_t id);
 
 } // namespace cloak

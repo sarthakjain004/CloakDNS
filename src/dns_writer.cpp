@@ -2,11 +2,14 @@
 
 #include <cstdint>
 #include <cstring>
+#include <stdexcept>
 
 namespace cloak {
 namespace {
 
 constexpr size_t kHeaderSize = 12;
+constexpr size_t kMaxLabel = 63;
+constexpr size_t kMaxName  = 255;
 
 void write_u16_be(std::vector<std::byte>& out, size_t off, uint16_t v) {
     out[off]     = std::byte{static_cast<uint8_t>((v >> 8) & 0xff)};
@@ -93,6 +96,55 @@ build_servfail_response(std::span<const std::byte> query,
 
     write_response_header(out, query, /*ancount=*/0, /*rcode=*/2);
     copy_question_bytes(out, query, q_end);
+    return out;
+}
+
+std::vector<std::byte>
+build_a_query(std::string_view qname, uint16_t id) {
+    if (qname.empty() || qname.size() > kMaxName)
+        throw std::invalid_argument{"build_a_query: qname length"};
+    if (qname.front() == '.' || qname.back() == '.')
+        throw std::invalid_argument{"build_a_query: leading/trailing dot"};
+
+    size_t wire_name_len = 0;
+    size_t label_start = 0;
+    for (size_t i = 0; i <= qname.size(); ++i) {
+        if (i == qname.size() || qname[i] == '.') {
+            const size_t label_len = i - label_start;
+            if (label_len == 0 || label_len > kMaxLabel)
+                throw std::invalid_argument{"build_a_query: label length"};
+            wire_name_len += 1 + label_len;
+            label_start = i + 1;
+        }
+    }
+    wire_name_len += 1;  // root terminator
+    if (wire_name_len > kMaxName)
+        throw std::invalid_argument{"build_a_query: encoded name > 255"};
+
+    std::vector<std::byte> out;
+    out.reserve(kHeaderSize + wire_name_len + 4);
+    out.resize(kHeaderSize);
+
+    write_u16_be(out, 0, id);
+    write_u16_be(out, 2, 0x0100);  // RD=1
+    write_u16_be(out, 4, 1);       // QDCOUNT
+    write_u16_be(out, 6, 0);       // ANCOUNT
+    write_u16_be(out, 8, 0);       // NSCOUNT
+    write_u16_be(out, 10, 0);      // ARCOUNT
+
+    label_start = 0;
+    for (size_t i = 0; i <= qname.size(); ++i) {
+        if (i == qname.size() || qname[i] == '.') {
+            const auto label_len = static_cast<uint8_t>(i - label_start);
+            out.push_back(std::byte{label_len});
+            for (size_t j = label_start; j < i; ++j)
+                out.push_back(std::byte{static_cast<uint8_t>(qname[j])});
+            label_start = i + 1;
+        }
+    }
+    out.push_back(std::byte{0});   // root
+    out.push_back(std::byte{0}); out.push_back(std::byte{1});  // QTYPE=A
+    out.push_back(std::byte{0}); out.push_back(std::byte{1});  // QCLASS=IN
     return out;
 }
 
