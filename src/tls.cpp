@@ -4,7 +4,9 @@
 #include <openssl/evp.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -109,6 +111,105 @@ std::string compute_spki_pin(X509* cert) {
     OPENSSL_free(der);
 
     return std::string{"sha256/"} + base64_encode(hash, hash_len);
+}
+
+bool ech_supported() noexcept {
+#ifdef CLOAKDNS_HAVE_ECH
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool configure_ssl_for_connection(SSL* ssl,
+                                  const ContextConfig& cfg,
+                                  const std::string& real_sni) {
+    if (!ssl || real_sni.empty()) return false;
+
+#ifdef CLOAKDNS_HAVE_ECH
+    if (!cfg.ech_config_list.empty()) {
+        // Inner SNI (encrypted): the actual hostname the server expects on
+        // the cert. This is what gets verified post-handshake.
+        if (SSL_set_tlsext_host_name(ssl, real_sni.c_str()) != 1) return false;
+        if (SSL_set1_host(ssl, real_sni.c_str()) != 1) return false;
+
+        // Outer SNI (cleartext): the decoy hostname an on-path observer
+        // sees. Optional — when unset, OpenSSL picks a sensible default
+        // based on the ECHConfigList contents.
+        if (!cfg.ech_outer_servername.empty()) {
+            if (SSL_ech_set1_outer_server_name(ssl,
+                    cfg.ech_outer_servername.c_str()) != 1)
+                return false;
+        }
+
+        const auto* bytes = reinterpret_cast<const unsigned char*>(
+            cfg.ech_config_list.data());
+        if (SSL_set1_ech_config_list(ssl, bytes,
+                                     cfg.ech_config_list.size()) != 1) {
+            return false;
+        }
+        return true;
+    }
+#endif
+
+    // ECH disabled or unavailable: standard SNI path.
+    if (SSL_set_tlsext_host_name(ssl, real_sni.c_str()) != 1) return false;
+    if (SSL_set1_host(ssl, real_sni.c_str()) != 1) return false;
+    return true;
+}
+
+std::optional<std::vector<std::byte>> base64_decode(std::string_view input) {
+    static constexpr std::int8_t kInvalid = -1;
+    static constexpr auto kLookup = [] {
+        std::array<std::int8_t, 256> t{};
+        for (auto& v : t) v = kInvalid;
+        for (int i = 0; i < 26; ++i) t[std::size_t('A' + i)] = static_cast<std::int8_t>(i);
+        for (int i = 0; i < 26; ++i) t[std::size_t('a' + i)] = static_cast<std::int8_t>(26 + i);
+        for (int i = 0; i < 10; ++i) t[std::size_t('0' + i)] = static_cast<std::int8_t>(52 + i);
+        t[std::size_t('+')] = 62;
+        t[std::size_t('/')] = 63;
+        return t;
+    }();
+
+    // Strip whitespace into a packed buffer.
+    std::string packed;
+    packed.reserve(input.size());
+    for (char c : input) {
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') continue;
+        packed.push_back(c);
+    }
+    if (packed.empty()) return std::vector<std::byte>{};
+    if (packed.size() % 4 != 0) return std::nullopt;
+
+    // Count trailing '=' padding (0–2).
+    std::size_t pad = 0;
+    if (packed.size() >= 1 && packed[packed.size() - 1] == '=') {
+        pad = 1;
+        if (packed.size() >= 2 && packed[packed.size() - 2] == '=') pad = 2;
+    }
+
+    std::vector<std::byte> out;
+    out.reserve(packed.size() / 4 * 3);
+    for (std::size_t i = 0; i + 4 <= packed.size(); i += 4) {
+        const auto a = kLookup[std::uint8_t(packed[i])];
+        const auto b = kLookup[std::uint8_t(packed[i + 1])];
+        const auto c_idx = (packed[i + 2] == '=') ? 0 : kLookup[std::uint8_t(packed[i + 2])];
+        const auto d_idx = (packed[i + 3] == '=') ? 0 : kLookup[std::uint8_t(packed[i + 3])];
+        if (a == kInvalid || b == kInvalid ||
+            (packed[i + 2] != '=' && c_idx == kInvalid) ||
+            (packed[i + 3] != '=' && d_idx == kInvalid)) {
+            return std::nullopt;
+        }
+        const std::uint32_t triple =
+            (std::uint32_t(a) << 18) | (std::uint32_t(b) << 12) |
+            (std::uint32_t(c_idx) << 6) | std::uint32_t(d_idx);
+        out.push_back(std::byte((triple >> 16) & 0xff));
+        if (i + 4 != packed.size() || pad < 2)
+            out.push_back(std::byte((triple >> 8) & 0xff));
+        if (i + 4 != packed.size() || pad < 1)
+            out.push_back(std::byte(triple & 0xff));
+    }
+    return out;
 }
 
 Context::Context(const ContextConfig& cfg)

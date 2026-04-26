@@ -41,6 +41,19 @@ struct UpstreamConfig {
     // DoH request path. Standard is "/dns-query". Only consulted when
     // protocol = "doh".
     std::string                doh_path{"/dns-query"};
+
+    // Encrypted Client Hello (RFC 9849). Opt-in; requires this build to
+    // have been compiled with CLOAKDNS_ECH=ON (OpenSSL 4.0+).
+    //
+    // ech_outer_servername: cleartext SNI on the wire. Empty lets
+    //   OpenSSL pick a sensible default from the ECHConfigList.
+    // ech_config_list: pre-decoded ECHConfigList bytes. Source: copy
+    //   from `dig +https <hostname>` HTTPS RR's `ech` SvcParam, decode
+    //   to bytes, store here. (config.cpp does the base64 decode at
+    //   load time so consumers get raw bytes.)
+    bool                       ech_enabled{false};
+    std::string                ech_outer_servername;
+    std::vector<std::byte>     ech_config_list;
 };
 
 struct BlocklistConfig {

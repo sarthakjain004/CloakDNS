@@ -1,5 +1,7 @@
 #include "cloakdns/config.hpp"
 
+#include "cloakdns/tls.hpp"
+
 #include <asio/ip/address.hpp>
 #include <toml++/toml.hpp>
 
@@ -106,6 +108,32 @@ UpstreamConfig parse_upstream(const toml::table& t) {
         if (v->empty() || v->front() != '/')
             fail("upstream.doh_path: '" + *v + "' must start with '/'");
         out.doh_path = *v;
+    }
+    if (auto v = t["ech_enabled"].value<bool>(); v) {
+        out.ech_enabled = *v;
+    }
+    if (auto v = t["ech_outer_servername"].value<std::string>(); v) {
+        out.ech_outer_servername = *v;
+    }
+    if (auto v = t["ech_config_list_b64"].value<std::string>(); v) {
+        if (auto bytes = tls::base64_decode(*v); bytes) {
+            out.ech_config_list = std::move(*bytes);
+        } else {
+            fail("upstream.ech_config_list_b64: not valid base64");
+        }
+    }
+    if (out.ech_enabled) {
+        if (!tls::ech_supported()) {
+            fail("upstream.ech_enabled = true but this build was compiled "
+                 "without ECH support (CLOAKDNS_ECH=OFF). Rebuild with "
+                 "-DCLOAKDNS_ECH=ON against OpenSSL 4.0+, or unset "
+                 "ech_enabled.");
+        }
+        if (out.ech_config_list.empty()) {
+            fail("upstream.ech_enabled = true but ech_config_list_b64 is "
+                 "missing or empty. Provide the ECHConfigList from the "
+                 "upstream's HTTPS DNS record.");
+        }
     }
     if ((out.protocol == UpstreamProtocol::Dot || out.protocol == UpstreamProtocol::Doh)
         && out.servername.empty()) {

@@ -124,11 +124,10 @@ post_https_oneshot(asio::io_context& ctx,
         }
     });
 
-    if (SSL_set_tlsext_host_name(stream->native_handle(),
-                                 host_header.c_str()) != 1) {
+    if (!tls::configure_ssl_for_connection(stream->native_handle(),
+                                           tls_ctx.config(), host_header)) {
         co_return std::nullopt;
     }
-    SSL_set1_host(stream->native_handle(), host_header.c_str());
 
     try {
         co_await stream->lowest_layer().async_connect(server, asio::use_awaitable);

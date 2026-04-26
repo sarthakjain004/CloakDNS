@@ -6,7 +6,9 @@
 #include <openssl/x509.h>
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace cloak::tls {
@@ -28,6 +30,19 @@ struct ContextConfig {
     // to "cloudflare-dns.com" so the cert's SAN check succeeds. Required
     // when the upstream is reached by IP literal.
     std::string servername;
+
+    // ECH ClientHello outer SNI (decoy). Empty when ECH is disabled. When
+    // set, this is the hostname an on-path observer sees in the
+    // ClientHello; the real SNI travels encrypted inside the ECH
+    // extension. Typical: a CDN-managed alias like "cloudflare-ech.com".
+    std::string ech_outer_servername;
+
+    // Binary ECHConfigList (RFC 9849). Empty disables ECH. When non-empty
+    // and the build was compiled with CLOAKDNS_HAVE_ECH (OpenSSL 4.0+),
+    // configure_ssl_for_connection() turns on ECH for the handshake.
+    // Unused on builds without ECH support, even if populated — silently
+    // falls back to plain SNI rather than failing closed.
+    std::vector<std::byte> ech_config_list;
 };
 
 // Wraps an asio::ssl::context (which owns the underlying SSL_CTX*) with
@@ -54,6 +69,25 @@ private:
     asio::ssl::context   ctx_;
     const ContextConfig* cfg_;
 };
+
+// Apply per-connection TLS settings on a fresh SSL*. Always sets the
+// SNI hostname (`real_sni`) and the cert SAN-match host. When the
+// ContextConfig carries an ECHConfigList AND the build has ECH support,
+// also wires up the encrypted ClientHello (real_sni becomes the inner
+// SNI; cfg.ech_outer_servername becomes the outer/decoy). Returns false
+// if any OpenSSL call fails — the caller should abort the connection.
+bool configure_ssl_for_connection(SSL* ssl,
+                                  const ContextConfig& cfg,
+                                  const std::string& real_sni);
+
+// True if this build was compiled with ECH support (OpenSSL 4.0+ and
+// CLOAKDNS_ECH=ON). Use to fail config validation early when the user
+// asks for ECH but the binary can't deliver it.
+bool ech_supported() noexcept;
+
+// Decode a base64 string (with or without "=" padding; whitespace
+// ignored). Returns nullopt on any invalid character or wrong length.
+std::optional<std::vector<std::byte>> base64_decode(std::string_view input);
 
 // Idempotent OpenSSL init. Called from Context's constructor; exposed so
 // tests can pre-init without spinning up a full Context.
