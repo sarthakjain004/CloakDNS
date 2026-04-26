@@ -1,0 +1,66 @@
+name: Blocklists
+
+# Validates that tools/update_blocklists.py keeps working end-to-end
+# against live upstream feeds. Runs weekly so we notice broken sources
+# (404s, schema drift) before users do, and on push for changes touching
+# the updater itself. Does NOT commit merged.txt — it's a generated
+# artifact gitignored on purpose. Uploads the manifest + merged file as
+# build artifacts retained 30 days for inspection.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # Mondays 06:00 UTC
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/update_blocklists.py'
+      - 'tools/test_update_blocklists.py'
+      - 'tools/blocklist_sources.toml'
+      - '.github/workflows/blocklists.yml'
+  # Run on every PR push so the check is visible alongside ci.yml's
+  # required checks. Live HTTP fetch is ~20s; cheap enough.
+  pull_request:
+    branches: [main]
+
+jobs:
+  refresh:
+    name: Refresh + validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Unit tests for updater
+        working-directory: tools
+        run: python -m unittest -v test_update_blocklists
+
+      - name: Fetch and merge upstream lists
+        run: |
+          python tools/update_blocklists.py \
+              --sources tools/blocklist_sources.toml \
+              --out /tmp/merged.txt
+
+      - name: Sanity-check merged output size
+        # Trip if the merged set drops below 100k domains — almost
+        # certainly a regression in the parser or a bunch of upstream
+        # 404s. The current floor is well above this (~500k).
+        run: |
+          count=$(grep -cv '^#\|^$' /tmp/merged.txt || true)
+          echo "merged domains: $count"
+          if [ "$count" -lt 100000 ]; then
+              echo "::error::merged.txt has only $count domains; expected >=100k"
+              exit 1
+          fi
+
+      - name: Upload merged blocklist as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: merged-blocklist
+          path: |
+            /tmp/merged.txt
+            /tmp/merged.txt.manifest.json
+          retention-days: 30

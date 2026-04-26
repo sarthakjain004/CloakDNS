@@ -9,6 +9,8 @@ cmake-build-*/
 *.log
 *.jsonl
 blocklists/merged.txt
+blocklists/merged.txt.manifest.json
+blocklists/.body-cache/
 *.pcap
 
 Testing/
