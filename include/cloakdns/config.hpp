@@ -37,6 +37,10 @@ struct UpstreamConfig {
 
     // RFC 7469 SPKI pins ("sha256/<base64>"). Empty = chain validation only.
     std::vector<std::string>   spki_pins;
+
+    // DoH request path. Standard is "/dns-query". Only consulted when
+    // protocol = "doh".
+    std::string                doh_path{"/dns-query"};
 };
 
 struct BlocklistConfig {
