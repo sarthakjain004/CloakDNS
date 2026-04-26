@@ -424,6 +424,10 @@ int main(int argc, char** argv) {
         upstream_cfg.servername         = cfg.upstream.servername;
         upstream_cfg.spki_pins          = cfg.upstream.spki_pins;
         upstream_cfg.doh_path           = cfg.upstream.doh_path;
+        if (cfg.upstream.ech_enabled) {
+            upstream_cfg.ech_outer_servername = cfg.upstream.ech_outer_servername;
+            upstream_cfg.ech_config_list      = cfg.upstream.ech_config_list;
+        }
         upstream_cfg.timeout            = cfg.upstream.timeout;
         upstream_cfg.retries_on_primary = cfg.upstream.retries_on_primary;
         upstream_cfg.padding_block_size = cfg.upstream.padding_block_size;

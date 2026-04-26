@@ -115,3 +115,67 @@ TEST(Tls, ContextConstructsAndOwnsCtx) {
     EXPECT_EQ(ctx.config().servername, "example.com");
     ASSERT_EQ(ctx.config().spki_pins.size(), 1u);
 }
+
+// --- base64 decoding for the ECH config_list path ---------------------
+
+namespace {
+std::string bytes_to_hex(const std::vector<std::byte>& bs) {
+    std::string out;
+    out.reserve(bs.size() * 2);
+    static const char* h = "0123456789abcdef";
+    for (auto b : bs) {
+        out.push_back(h[(std::to_integer<std::uint8_t>(b) >> 4) & 0xF]);
+        out.push_back(h[std::to_integer<std::uint8_t>(b) & 0xF]);
+    }
+    return out;
+}
+} // namespace
+
+TEST(TlsBase64, DecodesKnownVectors) {
+    // RFC 4648 §10 test vectors.
+    auto a = cloak::tls::base64_decode("");
+    ASSERT_TRUE(a); EXPECT_EQ(a->size(), 0u);
+
+    auto b = cloak::tls::base64_decode("Zg==");
+    ASSERT_TRUE(b); EXPECT_EQ(bytes_to_hex(*b), "66");
+
+    auto c = cloak::tls::base64_decode("Zm8=");
+    ASSERT_TRUE(c); EXPECT_EQ(bytes_to_hex(*c), "666f");
+
+    auto d = cloak::tls::base64_decode("Zm9v");
+    ASSERT_TRUE(d); EXPECT_EQ(bytes_to_hex(*d), "666f6f");
+
+    auto e = cloak::tls::base64_decode("Zm9vYmFy");
+    ASSERT_TRUE(e); EXPECT_EQ(bytes_to_hex(*e), "666f6f626172");
+}
+
+TEST(TlsBase64, IgnoresWhitespace) {
+    auto a = cloak::tls::base64_decode("Zm9v\n YmFy ");
+    ASSERT_TRUE(a);
+    EXPECT_EQ(bytes_to_hex(*a), "666f6f626172");
+}
+
+TEST(TlsBase64, RejectsInvalidLength) {
+    // After stripping whitespace the packed length must be a multiple of 4.
+    EXPECT_FALSE(cloak::tls::base64_decode("Zg=").has_value());
+    EXPECT_FALSE(cloak::tls::base64_decode("Z").has_value());
+}
+
+TEST(TlsBase64, RejectsInvalidChars) {
+    EXPECT_FALSE(cloak::tls::base64_decode("Zm9*").has_value());
+    EXPECT_FALSE(cloak::tls::base64_decode("Zm$v").has_value());
+}
+
+// --- ECH helper compile-and-link checks -------------------------------
+
+TEST(TlsEch, EchSupportedReturnsBuildFlag) {
+    // The compile-time gate is the only thing this exercises today —
+    // the actual ECH wire-level behavior needs OpenSSL 4.0 + a server
+    // with ECH configured, covered by an online integration test.
+    const bool supported = cloak::tls::ech_supported();
+#ifdef CLOAKDNS_HAVE_ECH
+    EXPECT_TRUE(supported);
+#else
+    EXPECT_FALSE(supported);
+#endif
+}

@@ -116,15 +116,14 @@ dot_try_once(asio::io_context& ctx,
         }
     });
 
-    // TLS SNI: required by Cloudflare et al. when reached by IP. The cert
-    // SAN match also keys off this name. Without SNI, handshake errors
-    // with "tlsv1 alert unrecognized name" or returns the wrong cert.
-    if (!servername.empty()) {
-        if (SSL_set_tlsext_host_name(stream->native_handle(),
-                                     servername.c_str()) != 1) {
-            co_return std::nullopt;
-        }
-        SSL_set1_host(stream->native_handle(), servername.c_str());
+    // TLS SNI + (optional) ECH: configure_ssl_for_connection installs the
+    // SNI required by Cloudflare et al. when reached by IP, and turns on
+    // ECH when the ContextConfig carries an ECHConfigList and the build
+    // has CLOAKDNS_HAVE_ECH.
+    if (!servername.empty() &&
+        !tls::configure_ssl_for_connection(stream->native_handle(),
+                                           tls_ctx.config(), servername)) {
+        co_return std::nullopt;
     }
 
     try {

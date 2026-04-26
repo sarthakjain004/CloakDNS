@@ -57,6 +57,12 @@ public:
         // expose alternate paths. Ignored unless protocol == Doh.
         std::string doh_path{"/dns-query"};
 
+        // Encrypted Client Hello (RFC 9849). When ech_config_list is
+        // non-empty AND the build has CLOAKDNS_HAVE_ECH, the upstream
+        // TLS handshake runs ECH; otherwise standard SNI.
+        std::string            ech_outer_servername;
+        std::vector<std::byte> ech_config_list;
+
         std::chrono::milliseconds timeout{2000};
         int                       retries_on_primary{1};
         std::size_t               padding_block_size{128};   // 0 disables

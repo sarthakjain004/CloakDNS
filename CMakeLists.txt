@@ -48,11 +48,17 @@ FetchContent_Declare(tomlplusplus
     GIT_SHALLOW    TRUE)
 FetchContent_MakeAvailable(tomlplusplus)
 
-# OpenSSL — required for DoT (M19a). DoH (M19b) and ECH (M20) reuse it.
-# 3.0+ for DoT/DoH; M20 will bump to 4.0 when ECH lands. On Windows CI the
-# image ships OpenSSL 3.x via Chocolatey/the runner image; on macOS we
-# rely on Homebrew's openssl@3 (set OPENSSL_ROOT_DIR or `brew --prefix`).
-find_package(OpenSSL 3.0 REQUIRED)
+# OpenSSL — required for DoT (M19a) and DoH (M19b). 3.0+ is sufficient.
+# CLOAKDNS_ECH flips on Encrypted Client Hello, which needs OpenSSL 4.0+
+# (RFC 9849 — first shipped in OpenSSL 4.0 on 2026-04-14). Off by default
+# so the build still works on the 3.x distro packages. CI takes the 3.x
+# path; a separate vendored-4.0 job covers the ECH compile path.
+option(CLOAKDNS_ECH "Encrypted Client Hello — requires OpenSSL 4.0+" OFF)
+if(CLOAKDNS_ECH)
+    find_package(OpenSSL 4.0 REQUIRED)
+else()
+    find_package(OpenSSL 3.0 REQUIRED)
+endif()
 
 add_library(asio_headers INTERFACE)
 target_include_directories(asio_headers INTERFACE
@@ -88,6 +94,9 @@ target_link_libraries(cloak_dns_core PUBLIC
     tomlplusplus::tomlplusplus
     OpenSSL::SSL
     OpenSSL::Crypto)
+if(CLOAKDNS_ECH)
+    target_compile_definitions(cloak_dns_core PUBLIC CLOAKDNS_HAVE_ECH)
+endif()
 
 if(WIN32)
     target_link_libraries(cloak_dns_core PUBLIC ws2_32 mswsock)
