@@ -17,6 +17,10 @@ on:
       - 'tools/test_update_blocklists.py'
       - 'tools/blocklist_sources.toml'
       - '.github/workflows/blocklists.yml'
+  # Run on every PR push so the check is visible alongside ci.yml's
+  # required checks. Live HTTP fetch is ~20s; cheap enough.
+  pull_request:
+    branches: [main]
 
 jobs:
   refresh:
