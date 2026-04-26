@@ -188,7 +188,7 @@ awaitable<void> handle(std::vector<std::byte> query_buf,
         try {
             auto fwd_result = co_await fwd.forward_with_source(query);
             auto upstream_resp = std::move(fwd_result.response);
-            const auto upstream_str = to_string_via_stream(fwd_result.answered_by);
+            const auto upstream_str = fwd_result.upstream;
 
             auto try_cache_insert = [&]() {
                 if (auto key = cloak::make_cache_key(msg)) {
@@ -347,6 +347,26 @@ resolve_servers(const std::vector<cloak::Endpoint>& list) {
     return out;
 }
 
+std::vector<asio::ip::tcp::endpoint>
+resolve_tcp_servers(const std::vector<cloak::Endpoint>& list) {
+    std::vector<asio::ip::tcp::endpoint> out;
+    out.reserve(list.size());
+    for (const auto& ep : list) {
+        out.emplace_back(make_address(ep.host), ep.port);
+    }
+    return out;
+}
+
+cloak::UpstreamForwarder::Protocol
+translate_protocol(cloak::UpstreamProtocol p) {
+    switch (p) {
+      case cloak::UpstreamProtocol::Udp: return cloak::UpstreamForwarder::Protocol::Udp;
+      case cloak::UpstreamProtocol::Dot: return cloak::UpstreamForwarder::Protocol::Dot;
+      case cloak::UpstreamProtocol::Doh: return cloak::UpstreamForwarder::Protocol::Doh;
+    }
+    return cloak::UpstreamForwarder::Protocol::Udp;
+}
+
 cloak::Config load_or_default(int argc, char** argv) {
     if (argc > 1) {
         const std::filesystem::path p{argv[1]};
@@ -398,13 +418,20 @@ int main(int argc, char** argv) {
 
         asio::io_context ctx;
 
-        cloak::UpstreamForwarder forwarder{ctx,
-            cloak::UpstreamForwarder::Config{
-                .servers            = resolve_servers(cfg.upstream.servers),
-                .timeout            = cfg.upstream.timeout,
-                .retries_on_primary = cfg.upstream.retries_on_primary,
-                .padding_block_size = cfg.upstream.padding_block_size,
-            }};
+        const auto fwd_proto = translate_protocol(cfg.upstream.protocol);
+        cloak::UpstreamForwarder::Config upstream_cfg{};
+        upstream_cfg.protocol           = fwd_proto;
+        upstream_cfg.servername         = cfg.upstream.servername;
+        upstream_cfg.spki_pins          = cfg.upstream.spki_pins;
+        upstream_cfg.timeout            = cfg.upstream.timeout;
+        upstream_cfg.retries_on_primary = cfg.upstream.retries_on_primary;
+        upstream_cfg.padding_block_size = cfg.upstream.padding_block_size;
+        if (fwd_proto == cloak::UpstreamForwarder::Protocol::Udp) {
+            upstream_cfg.servers = resolve_servers(cfg.upstream.servers);
+        } else {
+            upstream_cfg.tcp_servers = resolve_tcp_servers(cfg.upstream.servers);
+        }
+        cloak::UpstreamForwarder forwarder{ctx, std::move(upstream_cfg)};
 
         // Uncloaker holds a `const Blocklist&` to its initial snapshot.
         // Hot reload swaps `g_blocklist`, but the uncloaker's reference

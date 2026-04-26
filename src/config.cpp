@@ -57,6 +57,12 @@ ServerConfig parse_server(const toml::table& t) {
 
 UpstreamConfig parse_upstream(const toml::table& t) {
     UpstreamConfig out;
+    if (auto v = t["protocol"].value<std::string>(); v) {
+        if      (*v == "udp") out.protocol = UpstreamProtocol::Udp;
+        else if (*v == "dot") out.protocol = UpstreamProtocol::Dot;
+        else if (*v == "doh") out.protocol = UpstreamProtocol::Doh;
+        else fail("upstream.protocol: '" + *v + "' must be one of \"udp\", \"dot\", \"doh\"");
+    }
     if (auto arr = t["servers"].as_array()) {
         out.servers.clear();
         for (const auto& el : *arr) {
@@ -82,6 +88,26 @@ UpstreamConfig parse_upstream(const toml::table& t) {
         if (*v < 0)
             fail("upstream.padding_block_size: must be >= 0 (0 disables)");
         out.padding_block_size = static_cast<size_t>(*v);
+    }
+    if (auto v = t["servername"].value<std::string>(); v) {
+        out.servername = *v;
+    }
+    if (auto arr = t["spki_pins"].as_array()) {
+        for (const auto& el : *arr) {
+            auto s = el.value<std::string>();
+            if (!s)
+                fail("upstream.spki_pins: entries must be strings (\"sha256/<base64>\")");
+            if (!s->starts_with("sha256/"))
+                fail("upstream.spki_pins: '" + *s + "' must start with \"sha256/\"");
+            out.spki_pins.push_back(*s);
+        }
+    }
+    if ((out.protocol == UpstreamProtocol::Dot || out.protocol == UpstreamProtocol::Doh)
+        && out.servername.empty()) {
+        // Allow empty when the user is pointing at a hostname that itself
+        // serves as the SNI (we'll resolve and validate by that name in a
+        // future iteration). For now require it explicitly.
+        fail("upstream.servername: required when protocol = \"dot\" or \"doh\"");
     }
     return out;
 }

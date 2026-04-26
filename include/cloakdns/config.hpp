@@ -22,11 +22,21 @@ struct Endpoint {
     bool operator==(const Endpoint&) const = default;
 };
 
+enum class UpstreamProtocol { Udp, Dot, Doh };
+
 struct UpstreamConfig {
+    UpstreamProtocol           protocol{UpstreamProtocol::Udp};
     std::vector<Endpoint>      servers{{"1.1.1.1", 53}, {"9.9.9.9", 53}};
     std::chrono::milliseconds  timeout{2000};
     int                        retries_on_primary{1};
     size_t                     padding_block_size{128};
+
+    // SNI to use during DoT/DoH TLS handshakes. Required when servers are
+    // reached by IP literal. Ignored for protocol == Udp.
+    std::string                servername;
+
+    // RFC 7469 SPKI pins ("sha256/<base64>"). Empty = chain validation only.
+    std::vector<std::string>   spki_pins;
 };
 
 struct BlocklistConfig {

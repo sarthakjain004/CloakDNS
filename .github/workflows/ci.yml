@@ -16,7 +16,7 @@ jobs:
       - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build clang-18
+          sudo apt-get install -y cmake ninja-build clang-18 libssl-dev
 
       - name: Configure
         env:
@@ -45,7 +45,7 @@ jobs:
       - name: Install build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build clang-18
+          sudo apt-get install -y cmake ninja-build clang-18 libssl-dev
 
       - name: Configure
         env:
@@ -75,12 +75,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install ninja
-        run: brew install ninja
+      - name: Install ninja + openssl
+        run: brew install ninja openssl@3
 
       # Apple libc++ gates std::jthread / std::stop_token behind
       # _LIBCPP_AVAILABILITY_SYNC (macOS 13.4+). Pin the deployment
       # target explicitly so the symbols are visible.
+      #
+      # OpenSSL: macOS ships LibreSSL at /usr/bin/openssl, not OpenSSL —
+      # cmake's FindOpenSSL needs OPENSSL_ROOT_DIR to point at the
+      # Homebrew openssl@3 keg. Setting it from `brew --prefix` keeps
+      # this resilient to the keg path layout.
       - name: Configure
         env:
           MACOSX_DEPLOYMENT_TARGET: '14.0'
@@ -88,6 +93,7 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3) \
             -DCLOAKDNS_SANITIZE=asan+ubsan
 
       - name: Build
@@ -108,7 +114,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # windows-latest runners ship OpenSSL via Strawberry Perl + a
+      # standalone Win64 install at C:\Program Files\OpenSSL — the latter
+      # is what CMake's FindOpenSSL keys off when OPENSSL_ROOT_DIR is set.
+      # Kept explicit so a runner-image bump doesn't silently break us.
       - name: Configure
+        env:
+          OPENSSL_ROOT_DIR: 'C:\Program Files\OpenSSL'
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 
       - name: Build

@@ -2,56 +2,92 @@
 
 #include <asio/awaitable.hpp>
 #include <asio/io_context.hpp>
+#include <asio/ip/tcp.hpp>
 #include <asio/ip/udp.hpp>
 
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <random>
 #include <span>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace cloak {
 
+namespace tls {
+class Context;
+struct ContextConfig;
+} // namespace tls
+
+// Result of a successful upstream forward. `upstream` is pre-stringified
+// ("1.1.1.1:53" / "1.1.1.1:853") so the query log can record which server
+// answered without having to know the protocol.
 struct ForwardResult {
-    std::vector<std::byte>          response;
-    asio::ip::udp::endpoint         answered_by;   // which server replied
+    std::vector<std::byte> response;
+    std::string            upstream;
 };
 
 class UpstreamForwarder {
 public:
+    enum class Protocol { Udp, Dot, Doh };
+
     struct Config {
+        Protocol protocol{Protocol::Udp};
+
+        // UDP path uses `servers`; DoT/DoH use `tcp_servers`. The other
+        // vector should be left empty for the active protocol.
         std::vector<asio::ip::udp::endpoint> servers;
+        std::vector<asio::ip::tcp::endpoint> tcp_servers;
+
+        // SNI to send on TLS handshakes (DoT/DoH). Required when servers
+        // are reached by IP literal (e.g. "1.1.1.1:853") so the cert SAN
+        // check has a hostname to validate against.
+        std::string servername;
+
+        // RFC 7469 SPKI pins ("sha256/<base64>"). Empty = chain validation
+        // only. Pinning is additive on top of chain validation, never a
+        // replacement.
+        std::vector<std::string> spki_pins;
+
         std::chrono::milliseconds timeout{2000};
-        int retries_on_primary{1};
-        size_t padding_block_size{128};    // kPadBlockDefault; 0 = disabled
+        int                       retries_on_primary{1};
+        std::size_t               padding_block_size{128};   // 0 disables
     };
 
     UpstreamForwarder(asio::io_context& ctx, Config cfg);
+    ~UpstreamForwarder();
 
-    // Forward the client's query bytes upstream. On success returns
-    // the upstream response (ID rewritten back to the client's original
-    // ID, ready to sendto()) and the endpoint that answered. Throws
-    // std::runtime_error on total failure (all upstreams exhausted).
+    UpstreamForwarder(const UpstreamForwarder&) = delete;
+    UpstreamForwarder& operator=(const UpstreamForwarder&) = delete;
+
     asio::awaitable<ForwardResult>
     forward_with_source(std::span<const std::byte> client_query);
 
-    // Convenience wrapper for callers that don't care about the source.
     asio::awaitable<std::vector<std::byte>>
     forward(std::span<const std::byte> client_query);
 
+    Protocol protocol() const noexcept { return cfg_.protocol; }
+
 private:
     asio::awaitable<std::optional<std::vector<std::byte>>>
-    try_once(std::span<const std::byte> outbound,
-             const asio::ip::udp::endpoint& server,
-             uint16_t our_id,
-             std::span<const std::byte> client_query);
+    try_once_udp(std::span<const std::byte> outbound,
+                 const asio::ip::udp::endpoint& server,
+                 std::uint16_t our_id,
+                 std::span<const std::byte> client_query);
 
     asio::io_context& ctx_;
     Config cfg_;
     std::mt19937 rng_;
+
+    // TLS context lives for the forwarder's lifetime. Allocated only when
+    // protocol != Udp. Forward-declared to keep OpenSSL headers out of
+    // this header — destructor is out-of-line in upstream.cpp.
+    std::unique_ptr<tls::ContextConfig> tls_cfg_;
+    std::unique_ptr<tls::Context>       tls_ctx_;
 };
 
 } // namespace cloak
