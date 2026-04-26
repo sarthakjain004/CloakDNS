@@ -1,0 +1,61 @@
+# Server-side tracking API endpoints.
+#
+# Vekaria et al. "SoK: Web Tracking" (arXiv 2025) calls out
+# server-to-server tracking APIs as the new frontier — they're
+# undetectable by client-side mechanisms because the data travels
+# server-to-server, never touching the browser. Specific endpoints
+# named in the paper and in vendor documentation:
+#
+# Sources:
+#   - Vekaria et al. "SoK: Web Tracking" (arXiv 2025) §4
+#   - Meta Conversions API documentation
+#   - TikTok Events API documentation
+#   - Pinterest Conversions API documentation
+#   - Snapchat CAPI documentation
+#
+# Note: many of these endpoints are reachable both server-side and
+# client-side (via the browser-side pixel that fires alongside the
+# server-side beacon). DNS-level blocking stops the client-side leg;
+# only IP-level egress filtering or a transparent HTTP proxy can stop
+# the server-side leg if the publisher's backend implements it.
+
+# --- Meta / Facebook Conversions API ---
+# Both server-side (POST /events) and client-side pixel hit
+# graph.facebook.com — but blocking it breaks Facebook login on
+# integrating sites. Recommend the more specific endpoint instead:
+0.0.0.0 connect.facebook.net
+0.0.0.0 graph.facebook.com
+
+# --- TikTok Events API + Pixel ---
+0.0.0.0 analytics.tiktok.com
+0.0.0.0 business-api.tiktok.com
+
+# --- Pinterest Conversions API + Tag ---
+0.0.0.0 ct.pinterest.com
+0.0.0.0 s.pinimg.com
+
+# --- Snapchat CAPI / Pixel ---
+0.0.0.0 tr.snapchat.com
+0.0.0.0 sc-static.net
+0.0.0.0 collect-eu.snapchat.com
+
+# --- LinkedIn Insight Tag + Conversions API ---
+0.0.0.0 px.ads.linkedin.com
+0.0.0.0 px4.ads.linkedin.com
+0.0.0.0 snap.licdn.com
+
+# --- Twitter / X Pixel + Universal Conversion Tracking ---
+0.0.0.0 ads-twitter.com
+0.0.0.0 analytics.twitter.com
+0.0.0.0 t.co
+
+# --- Reddit Pixel + Conversions API ---
+0.0.0.0 redditstatic.com
+0.0.0.0 ads.reddit.com
+0.0.0.0 events.reddit.com
+
+# --- Server-side GTM (sGTM) — well-known cloaking pattern ---
+# Site operators commonly run sGTM under their own subdomain, which
+# we cannot enumerate. Instead block the configuration endpoint
+# Google uses to bootstrap server containers:
+0.0.0.0 gtm-msr.appspot.com

@@ -1,0 +1,56 @@
+# Data brokers and cross-device identity graphs.
+#
+# These are the "back-end" of the tracking ecosystem — they ingest
+# online IDs, marry them with offline purchase / loyalty / DMV /
+# voter-roll data, and feed the result back as targeting attributes.
+# Blocking these severs the link between online activity and offline
+# identity.
+#
+# Sources:
+#   - "Guarding Digital Privacy" (arXiv 2025) — data broker section
+#   - Sanchez-Rola et al. "Web Watching You" (2017)
+#   - Englehardt & Narayanan (CCS 2016) — cross-domain ID syncing graph
+#   - Federal Trade Commission "Data Brokers" report (2014, 2025 updates)
+
+# Acxiom / LiveRamp AbiliTec — the canonical online↔offline ID graph
+0.0.0.0 acxiom.com
+0.0.0.0 liveramp.com
+0.0.0.0 pippio.com
+0.0.0.0 rlcdn.com
+
+# Oracle Data Cloud / BlueKai / OIDG cross-device graph
+0.0.0.0 bluekai.com
+0.0.0.0 bkrtx.com
+
+# Nielsen eXelate (audience data marketplace)
+0.0.0.0 exelate.com
+0.0.0.0 nexac.com
+
+# Tapad (now Experian) — cross-device probabilistic graph
+0.0.0.0 tapad.com
+
+# Drawbridge (now LinkedIn / Microsoft) — cross-device deterministic graph
+0.0.0.0 drawbridge.com
+0.0.0.0 adsymptotic.com
+
+# LiveIntent — email-based identity graph
+0.0.0.0 liveintent.com
+
+# TowerData (now Webbula) — email + demographic enrichment
+0.0.0.0 towerdata.com
+
+# TruSignal / Acxiom-acquired predictive scoring
+0.0.0.0 trusignal.com
+
+# Neustar (now TransUnion) AdvertisingCloud / IdentityHub
+0.0.0.0 neustar.biz
+0.0.0.0 agkn.com
+
+# Bombora — B2B intent data
+0.0.0.0 ml314.com
+
+# Throtle — identity resolution
+0.0.0.0 throtle.io
+
+# Merkle / dentsu — deterministic identity
+0.0.0.0 merklesearch.com

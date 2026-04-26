@@ -1,0 +1,137 @@
+# CloakDNS E2E corpus — top 100 sites used by Indian users.
+#
+# Curated 2026-04-26 from:
+#   - SimilarWeb India top sites (Q1 2026)
+#   - Cloudflare Radar IN domains
+#   - DataReportal "Digital 2025: India"
+#   - Hand-curated Indian-origin (.in TLD or India HQ)
+#
+# Distribution: see docs/08-india-top100-plan.md table for category
+# counts. Filters: no adult content, no pure-infra domains, no
+# auth-only homepages.
+#
+# Total: 100 (verify with `grep -vc '^#\|^$' corpus_india.txt`)
+
+# --- Search / portal (6) ---
+google.com
+google.co.in
+yahoo.com
+bing.com
+duckduckgo.com
+ask.com
+
+# --- Social / messaging (12) ---
+facebook.com
+instagram.com
+twitter.com
+linkedin.com
+whatsapp.com
+telegram.org
+snapchat.com
+reddit.com
+pinterest.com
+quora.com
+sharechat.com
+koo.com
+
+# --- E-commerce (16) ---
+flipkart.com
+amazon.in
+myntra.com
+meesho.com
+nykaa.com
+ajio.com
+bigbasket.com
+snapdeal.com
+firstcry.com
+tatacliq.com
+croma.com
+blinkit.com
+zepto.com
+ebay.in
+shopclues.com
+paytmmall.com
+
+# --- Streaming / entertainment (12) ---
+youtube.com
+hotstar.com
+netflix.com
+primevideo.com
+zee5.com
+sonyliv.com
+jiocinema.com
+mxplayer.in
+spotify.com
+gaana.com
+jiosaavn.com
+wynk.in
+
+# --- News (14) ---
+timesofindia.indiatimes.com
+ndtv.com
+hindustantimes.com
+indianexpress.com
+thehindu.com
+news18.com
+zeenews.india.com
+economictimes.indiatimes.com
+moneycontrol.com
+livemint.com
+business-standard.com
+firstpost.com
+republicworld.com
+scroll.in
+
+# --- Travel / transport (10) ---
+irctc.co.in
+makemytrip.com
+goibibo.com
+yatra.com
+cleartrip.com
+ixigo.com
+easemytrip.com
+redbus.in
+olacabs.com
+uber.com
+
+# --- Food / quick commerce (4) ---
+zomato.com
+swiggy.com
+dominos.co.in
+fasos.com
+
+# --- Banking / fintech (11) ---
+paytm.com
+phonepe.com
+razorpay.com
+cred.club
+groww.in
+zerodha.com
+policybazaar.com
+bankbazaar.com
+upstox.com
+licindia.in
+hdfcbank.com
+
+# --- Education (4) ---
+byjus.com
+unacademy.com
+vedantu.com
+wikipedia.org
+
+# --- Government / utility (5) ---
+incometax.gov.in
+uidai.gov.in
+mygov.in
+epfindia.gov.in
+india.gov.in
+
+# --- Telecom (3) ---
+airtel.in
+jio.com
+vi.com
+
+# --- Tech / productivity (3) ---
+github.com
+microsoft.com
+apple.com

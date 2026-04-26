@@ -1,0 +1,96 @@
+# Fingerprinting providers — hand-curated from research literature.
+#
+# Sources:
+#   - Acar et al. "The Web Never Forgets" (CCS 2014) — 95% of canvas FP from addthis.com
+#   - Englehardt & Narayanan "OpenWPM 1M Census" (CCS 2016) — top FP scripts
+#   - FP-Radar (PETS 2022) — fingerprinting domain detection
+#   - CLAUDE.md Tier 3 priority list
+#
+# Format: hosts (`0.0.0.0 domain`), one rule per line. Loaded same way
+# as tier1.txt by the cloakdns blocklist engine. Domains are lowercased
+# punycode.
+
+# Canvas / WebGL / AudioContext fingerprinting (Acar 2014, Englehardt 2016)
+0.0.0.0 addthis.com
+0.0.0.0 ct1.addthis.com
+0.0.0.0 ligatus.com
+
+# FP-Radar / FPTrace (WWW 2025) identified providers
+0.0.0.0 doubleverify.com
+0.0.0.0 lijit.com
+0.0.0.0 alicdn.com
+0.0.0.0 audienceinsights.net
+0.0.0.0 boo-box.com
+
+# Anti-fraud / device-graph fingerprinters (often dual-use, but cross-site)
+0.0.0.0 cdn.augur.io
+0.0.0.0 static.fraudmetrix.cn
+0.0.0.0 cdn-net.com
+0.0.0.0 js.ad-score.com
+0.0.0.0 pxi.pub
+
+# Evercookie / respawning infrastructure (Soltani / Kamkar / OpenWPM)
+0.0.0.0 bbcdn-bbnaut.ibillboard.com
+0.0.0.0 kiks.yandex.ru
+0.0.0.0 irs01.net
+0.0.0.0 simg.sinajs.cn
+0.0.0.0 iovation.com
+0.0.0.0 threatmetrix.com
+
+# Additional canvas / Battery / WebGL / AudioContext FP domains
+# (FP-Radar PETS 2022 + OpenWPM 2024 follow-up census)
+0.0.0.0 sift.com
+0.0.0.0 forter.com
+0.0.0.0 perimeterx.net
+0.0.0.0 px-cdn.net
+0.0.0.0 px-cloud.net
+0.0.0.0 px-cdn.com
+0.0.0.0 sweepstakes-marketing.net
+0.0.0.0 fpsd.cnn.com
+0.0.0.0 demanddata.bidtellect.com
+
+# Anti-fraud as fingerprinter (dual-use, but in practice over-collects)
+0.0.0.0 maxmind.com
+0.0.0.0 maxmind.net
+0.0.0.0 emailage.com
+0.0.0.0 castle.io
+0.0.0.0 fingerprint.com
+0.0.0.0 fingerprintjs.com
+
+# Behavioral / mouse-keystroke biometric trackers (Acar 2014, Vekaria 2025)
+0.0.0.0 keystroke.io
+0.0.0.0 typingdna.com
+0.0.0.0 biometric-signature-id.com
+
+# Ad-tech FP layered on top of measurement (Englehardt 2016 / DoubleVerify)
+0.0.0.0 doubleverify.com
+0.0.0.0 dv.tech
+0.0.0.0 cdn.doubleverify.com
+0.0.0.0 ias-research.com
+0.0.0.0 adsafeprotected.com
+0.0.0.0 moatads.com
+
+# Augur (now LiveRamp acquired) — original canvas/font FP (Acar 2014)
+0.0.0.0 augur.io
+0.0.0.0 cookiesync.augur.io
+
+# Bluecava — historical mass canvas FP collector
+0.0.0.0 bluecava.com
+0.0.0.0 us-u.openx.net
+
+# Real-User Monitoring (RUM) — observed on nytimes.com via real Chrome
+# capture. RUM products gather page-view + interaction telemetry that
+# functionally amounts to user tracking; some explicitly fingerprint.
+0.0.0.0 datadoghq-browser-agent.com
+0.0.0.0 browser-intake-datadoghq.com
+0.0.0.0 chartbeat.com
+0.0.0.0 static.chartbeat.com
+0.0.0.0 ping.chartbeat.net
+0.0.0.0 geoedge.be
+0.0.0.0 rumcdn.geoedge.be
+0.0.0.0 newrelic.com
+0.0.0.0 nr-data.net
+0.0.0.0 logrocket.com
+0.0.0.0 fullstory.com
+0.0.0.0 hotjar.com
+0.0.0.0 hotjar.io

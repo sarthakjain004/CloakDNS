@@ -1,0 +1,69 @@
+# Cookie-syncing hubs and major SSP/DSP/exchange domains.
+#
+# Extends CLAUDE.md tier1+2 (in blocklists/tier1.txt) with the
+# next-tier domains identified by Englehardt & Narayanan's CCS 2016
+# 1M-site OpenWPM census as significant cookie-syncing partners or
+# third-party trackers reaching >0.1% of the top 1M.
+#
+# A "cookie syncing" event is when one tracker writes its ID into a
+# request URL routed via another tracker's domain so the second can
+# read it. Englehardt 2016 Table 4 showed adverticum.net's ID appearing
+# on 752 of the top 1k sites via 82 syncing partners. Killing the hubs
+# kills the graph.
+#
+# Sources:
+#   - Englehardt & Narayanan, "Online Tracking: A 1M-Site Census" (CCS 2016)
+#   - Acar et al., "The Web Never Forgets" (CCS 2014)
+#   - Roesner et al., "Detecting and Defending Against Third-Party Tracking" (NSDI 2012)
+
+# Real-time bidding / SSP/DSP exchange infrastructure
+0.0.0.0 amazon-adsystem.com
+0.0.0.0 bidswitch.net
+0.0.0.0 pubmatic.com
+0.0.0.0 yieldmanager.com
+0.0.0.0 contextweb.com
+0.0.0.0 spotxchange.com
+0.0.0.0 33across.com
+0.0.0.0 adform.net
+0.0.0.0 adgear.com
+0.0.0.0 adition.com
+0.0.0.0 magnite.com
+0.0.0.0 yldbt.com
+
+# Google ad-tech outside the doubleclick / google-analytics core
+0.0.0.0 googletagservices.com
+0.0.0.0 g.doubleclick.net
+0.0.0.0 partner.googleadservices.com
+0.0.0.0 pubmine.com
+
+# Audience measurement / verification (frequent syncing partners)
+0.0.0.0 moatads.com
+0.0.0.0 ias-research.com
+0.0.0.0 adsafeprotected.com
+
+# Behavioural ad networks (Englehardt 2016 prominent)
+0.0.0.0 adsymptotic.com
+0.0.0.0 adsrvr.org
+0.0.0.0 amgdgt.com
+0.0.0.0 audienceiq.com
+0.0.0.0 demdex.net
+0.0.0.0 dnsdelegation.io
+0.0.0.0 everesttech.net
+0.0.0.0 quantserve.com
+0.0.0.0 quantcount.com
+0.0.0.0 semasio.net
+0.0.0.0 yieldlab.net
+
+# Tag managers that route data to trackers (judgement call — block
+# the redirect endpoints, not the manager itself, where possible)
+0.0.0.0 segment.io
+0.0.0.0 mparticle.com
+
+# Misc tracking / analytics
+0.0.0.0 sitescout.com
+0.0.0.0 matheranalytics.com
+0.0.0.0 piwik.pro
+
+# Media.net — RTB exchange + analytics, observed live on nytimes.com
+# (cs.media.net, hbx.media.net, warp.media.net all subdomains)
+0.0.0.0 media.net

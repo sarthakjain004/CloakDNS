@@ -1,0 +1,27 @@
+# CloakDNS E2E corpus — top user-navigable sites for E2E tracker testing.
+# Hand-curated from Tranco / Cloudflare Radar top lists, filtered to:
+#   - exclude infra-only domains (cloudfront.net, googleapis.com etc.)
+#   - exclude adult-content categories
+#   - exclude sites that need login on the homepage
+# This is a "top 20" subset for a quick E2E pass; widen to 100 when
+# the full nightly is set up.
+google.com
+youtube.com
+facebook.com
+amazon.com
+wikipedia.org
+twitter.com
+instagram.com
+reddit.com
+linkedin.com
+nytimes.com
+cnn.com
+bbc.com
+github.com
+stackoverflow.com
+microsoft.com
+apple.com
+netflix.com
+ebay.com
+imdb.com
+weather.com

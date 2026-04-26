@@ -1,0 +1,83 @@
+# Smart device / IoT telemetry endpoints — OPT-IN tier.
+#
+# Blocking these can break or degrade the device. Use only when you
+# specifically want to stop the device phoning home. Documented per
+# CLAUDE.md feature 3 (Smart Devices Bypass Pi-hole, XDA 2026 report)
+# and the broader IoT-tracking literature.
+#
+# This file is intentionally NOT included in the default
+# `[blocklist] sources` config. Add manually:
+#   [blocklist]
+#   sources = ["blocklists/tier1.txt",
+#              "tools/priority_tiers/smart_device_telemetry.txt"]
+#
+# Sources:
+#   - "Smart Devices Bypass Pi-hole" (XDA 2026)
+#   - Apthorpe et al. "Spying on the Smart Home" (PETS 2017)
+#   - Mozilla Privacy Not Included reports (2023, 2024)
+
+# --- Amazon Alexa / Echo telemetry ---
+# Blocking these stops the device from phoning home periodically;
+# the assistant still works because voice commands route via a
+# different domain (avs-alexa-*.amazon.com — left alone).
+0.0.0.0 device-metrics-us.amazon.com
+0.0.0.0 device-metrics-us-2.amazon.com
+0.0.0.0 pa.csiservice.amazon.com
+0.0.0.0 dcape-na.amazon.com
+
+# --- Apple device telemetry (judgement: blocking some breaks features) ---
+# DO NOT block: gsp10-ssl.apple.com (security/keychain), captive.apple.com
+# (network captive detection — needed on public Wi-Fi).
+0.0.0.0 metrics.icloud.com
+0.0.0.0 metrics.apple.com
+
+# --- Google Home / Nest / Android telemetry ---
+# DO NOT block: mtalk.google.com (Cloud Messaging — used for ALL
+# Android push) or *.googleapis.com (Maps, Drive, Auth all break).
+0.0.0.0 firebaselogging.googleapis.com
+0.0.0.0 firebaseio.com
+0.0.0.0 crashlytics.com
+0.0.0.0 app-measurement.com
+0.0.0.0 firebase-settings.crashlytics.com
+
+# --- Samsung Smart TV / Smart Hub ---
+# Apthorpe 2017 found Samsung TVs ship traffic to these without
+# explicit opt-in.
+0.0.0.0 log-config.samsungacr.com
+0.0.0.0 log-config.samsungrm.net
+0.0.0.0 acr0.samsungcloudsolution.com
+0.0.0.0 samsungcloudsolution.com
+0.0.0.0 samsungotn.net
+
+# --- LG WebOS Smart TV ---
+0.0.0.0 lgsmartad.com
+0.0.0.0 smartshare.lgtvsdp.com
+0.0.0.0 ngfts.lge.com
+
+# --- Vizio Smart TV (settled with FTC over un-disclosed ACR) ---
+0.0.0.0 tvinteractive.tv
+0.0.0.0 inscapedata.com
+0.0.0.0 hra-api.vizio.com
+
+# --- Roku ---
+0.0.0.0 cooper.logs.roku.com
+0.0.0.0 logs.roku.com
+0.0.0.0 scribe.logs.roku.com
+
+# --- Microsoft / Windows / XBox telemetry ---
+# Be careful: blocking too aggressively breaks Windows Update.
+0.0.0.0 watson.telemetry.microsoft.com
+0.0.0.0 vortex.data.microsoft.com
+0.0.0.0 settings-win.data.microsoft.com
+0.0.0.0 telemetry.appex.bing.net
+0.0.0.0 telecommand.telemetry.microsoft.com
+0.0.0.0 cloudcollector.telemetry.microsoft.com
+# Edge/Chrome on Windows phones home for "experiences" telemetry to
+# *.events.data.microsoft.com — observed via real Chrome capture.
+0.0.0.0 events.data.microsoft.com
+0.0.0.0 v10.events.data.microsoft.com
+0.0.0.0 v20.events.data.microsoft.com
+
+# --- Sony PlayStation telemetry ---
+0.0.0.0 sec.np.dl.playstation.net
+0.0.0.0 nsx.np.dl.playstation.net

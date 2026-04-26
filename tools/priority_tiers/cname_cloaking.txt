@@ -1,0 +1,71 @@
+# CNAME-cloaking trackers — hand-curated, research-cited.
+#
+# These domains are documented as the canonical CNAME-cloaking
+# providers: a first-party-looking subdomain (e.g.
+# `metrics.example.com`) is set up as a CNAME pointing at one of these
+# domains, so the browser treats the request as same-origin and ITP /
+# extension cookie heuristics are bypassed. The cloakdns CNAME
+# uncloaker walks the chain and matches against this list.
+#
+# Sources:
+#   - Dao et al. "CNAME Cloaking and Tracking" (IEEE TNSM 2021)
+#   - Vekaria et al. "SoK: Web Tracking" (arXiv 2025) §3.4
+#   - NextDNS cname-cloaking-blocklist (we also fetch this dynamically
+#     via tools/blocklist_sources.toml; this file is the offline
+#     fallback for the well-known providers).
+#
+# Notes:
+#   - Some of these are listed by their CNAME *target* domain (the
+#     hidden one), not the first-party-looking name. The uncloaker
+#     reads the CNAME chain hop-by-hop and matches each.
+#   - Several are also direct cookie-syncing partners and would be
+#     caught by tier1.txt / cookie_syncing.txt. We list them here too
+#     for clarity and because the suffix-match in cloakdns is O(1).
+
+# Adobe Audience Manager / Marketing Cloud (Dao 2021 §V.B, top by volume)
+0.0.0.0 demdex.net
+0.0.0.0 everesttech.net
+0.0.0.0 omtrdc.net
+
+# Criteo (Dao 2021 — second-highest CNAME-cloaking volume)
+0.0.0.0 criteo.com
+0.0.0.0 criteo.net
+0.0.0.0 dnsdelegation.io
+0.0.0.0 storetail.io
+
+# Eulerian (Dao 2021 — heaviest in EU)
+0.0.0.0 eulerian.net
+0.0.0.0 eulerianedge.com
+
+# AT Internet / XiTi / Piano Analytics
+0.0.0.0 at-o.net
+0.0.0.0 atinternet.com
+0.0.0.0 xiti.com
+0.0.0.0 xtcore.fr
+
+# Webtrekk / Mapp Intelligence
+0.0.0.0 webtrekk.net
+0.0.0.0 wt-eu02.net
+
+# Wizaly
+0.0.0.0 wizaly.com
+
+# Pardot / Salesforce Marketing Cloud
+0.0.0.0 pardot.com
+
+# TraceDock
+0.0.0.0 tdocsell.io
+0.0.0.0 tracedock.com
+
+# Keyade
+0.0.0.0 keyade.com
+
+# AB Tasty (A/B testing — also tracker-grade fingerprinting)
+0.0.0.0 abtasty.com
+
+# Ingenious Technologies
+0.0.0.0 ingenioustec.com
+
+# Commanders Act / Tagcommander
+0.0.0.0 commander1.com
+0.0.0.0 tagcommander.com

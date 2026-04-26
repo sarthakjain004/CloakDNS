@@ -1,0 +1,70 @@
+# Email open / click tracking pixels.
+#
+# An email "tracking pixel" is a 1x1 image hosted on a tracker domain
+# that loads when the recipient opens the message. Englehardt et al.
+# "I Never Signed Up For This!" (PETS 2018) found that 70% of mailing
+# list emails contain such pixels and that ~30% of the destinations
+# leak the recipient's email address (often hashed but reversible
+# given the small population of email addresses).
+#
+# Blocking these at DNS level prevents the open-tracking ping for
+# every mail client on the network, including phones and tablets that
+# don't have content-blocker extensions. (81% of email clients fetch
+# remote resources by default per Cascading Spy Sheets, NDSS 2025.)
+#
+# Sources:
+#   - Englehardt, Han, Narayanan "I Never Signed Up For This! Privacy
+#     Implications of Email Tracking" (PETS 2018)
+#   - "Cascading Spy Sheets" (NDSS 2025) — CSS-based DNS exfiltration
+#     during email render
+#   - EFF / Markup investigations into Mailchimp, Sendgrid, Klaviyo
+#     pixel behaviour
+
+# Mailchimp (`*.list-manage.com` is the click redirector + open pixel)
+0.0.0.0 list-manage.com
+
+# Sendgrid open + click (also abuse-prone)
+0.0.0.0 sendgrid.net
+
+# Mailgun pixel
+0.0.0.0 mailgun.org
+
+# Constant Contact
+0.0.0.0 constantcontact.com
+
+# HubSpot tracking
+0.0.0.0 hubspot.com
+0.0.0.0 hs-analytics.net
+0.0.0.0 hsforms.com
+0.0.0.0 hubspotemail.net
+
+# Klaviyo (judgement: also legitimate marketing platform)
+0.0.0.0 klaviyo.com
+0.0.0.0 list.kl.email
+
+# Email-specific click tracking redirectors
+0.0.0.0 mctracking.com
+0.0.0.0 mc.atrk.com
+0.0.0.0 trk.email.dell.com
+0.0.0.0 cl.exct.net
+
+# LinkedIn email tracking (separate from in-app)
+0.0.0.0 click.linkedin.com
+
+# Return Path (now Validity)
+0.0.0.0 returnpath.net
+0.0.0.0 pixel.app.returnpath.net
+
+# Litmus (email client analytics)
+0.0.0.0 emltrk.com
+0.0.0.0 litmus.com
+
+# Omnisend / Mailmunch
+0.0.0.0 omnisend.com
+0.0.0.0 mailmunch.co
+
+# Snovio (email tracking + scraping)
+0.0.0.0 snov.io
+
+# Mixpanel (also web tracking; email pixels via mp-email)
+0.0.0.0 mixpanel.com
