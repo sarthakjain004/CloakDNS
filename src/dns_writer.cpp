@@ -78,6 +78,39 @@ build_block_a_response(std::span<const std::byte> query,
 }
 
 std::vector<std::byte>
+build_block_aaaa_response(std::span<const std::byte> query,
+                          const DnsMessage& parsed) {
+    constexpr size_t kAnswerLen = 28;   // pointer(2) + type(2) + class(2) + ttl(4) + rdlen(2) + rdata(16)
+    const size_t q_end = parsed.question_section_end;
+    std::vector<std::byte> out(q_end + kAnswerLen);
+
+    write_response_header(out, query, /*ancount=*/1, /*rcode=*/0);
+    copy_question_bytes(out, query, q_end);
+
+    size_t a = q_end;
+    out[a++] = std::byte{0xc0};                  // NAME = pointer
+    out[a++] = std::byte{0x0c};                  //       to offset 12
+    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x1c};  // TYPE = AAAA (28)
+    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x01};  // CLASS = IN
+    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x00};
+    out[a++] = std::byte{0x01}; out[a++] = std::byte{0x2c};  // TTL = 300
+    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x10};  // RDLEN = 16
+    for (int i = 0; i < 16; ++i) out[a++] = std::byte{0x00}; // ::
+    return out;
+}
+
+std::vector<std::byte>
+build_block_nodata_response(std::span<const std::byte> query,
+                            const DnsMessage& parsed) {
+    const size_t q_end = parsed.question_section_end;
+    std::vector<std::byte> out(q_end);
+
+    write_response_header(out, query, /*ancount=*/0, /*rcode=*/0);
+    copy_question_bytes(out, query, q_end);
+    return out;
+}
+
+std::vector<std::byte>
 build_refused_response(std::span<const std::byte> query,
                        const DnsMessage& parsed) {
     const size_t q_end = parsed.question_section_end;

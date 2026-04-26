@@ -11,6 +11,29 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# Sanitizer selector: off | asan | ubsan | asan+ubsan | tsan
+# GCC/Clang only — MSVC has AddressSanitizer since VS 2019 but the
+# runtime doesn't ship with BuildTools, so gate to non-MSVC here.
+set(CLOAKDNS_SANITIZE "off" CACHE STRING
+    "Enable sanitizer: off | asan | ubsan | asan+ubsan | tsan")
+if(NOT MSVC AND NOT CLOAKDNS_SANITIZE STREQUAL "off")
+    set(_san_flags "")
+    if(CLOAKDNS_SANITIZE MATCHES "asan")
+        list(APPEND _san_flags -fsanitize=address -fno-omit-frame-pointer)
+    endif()
+    if(CLOAKDNS_SANITIZE MATCHES "ubsan")
+        list(APPEND _san_flags -fsanitize=undefined -fno-sanitize-recover=all)
+    endif()
+    if(CLOAKDNS_SANITIZE STREQUAL "tsan")
+        list(APPEND _san_flags -fsanitize=thread)
+    endif()
+    if(_san_flags)
+        add_compile_options(${_san_flags} -g -O1)
+        add_link_options(${_san_flags})
+        message(STATUS "CloakDNS sanitizer: ${CLOAKDNS_SANITIZE}")
+    endif()
+endif()
+
 include(FetchContent)
 
 FetchContent_Declare(asio
@@ -18,6 +41,12 @@ FetchContent_Declare(asio
     GIT_TAG        asio-1-30-2
     GIT_SHALLOW    TRUE)
 FetchContent_MakeAvailable(asio)
+
+FetchContent_Declare(tomlplusplus
+    GIT_REPOSITORY https://github.com/marzer/tomlplusplus
+    GIT_TAG        v3.4.0
+    GIT_SHALLOW    TRUE)
+FetchContent_MakeAvailable(tomlplusplus)
 
 add_library(asio_headers INTERFACE)
 target_include_directories(asio_headers INTERFACE
@@ -35,10 +64,15 @@ add_library(cloak_dns_core STATIC
     src/blocklist.cpp
     src/upstream.cpp
     src/uncloaker.cpp
-    src/cache.cpp)
+    src/cache.cpp
+    src/edns_padding.cpp
+    src/config.cpp
+    src/query_log.cpp
+    src/paths.cpp
+    src/privilege.cpp)
 target_include_directories(cloak_dns_core PUBLIC include)
 target_compile_features(cloak_dns_core PUBLIC cxx_std_20)
-target_link_libraries(cloak_dns_core PUBLIC asio_headers)
+target_link_libraries(cloak_dns_core PUBLIC asio_headers tomlplusplus::tomlplusplus)
 
 if(WIN32)
     target_link_libraries(cloak_dns_core PUBLIC ws2_32 mswsock)

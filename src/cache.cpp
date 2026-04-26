@@ -17,9 +17,14 @@ namespace cloak {
 
 namespace {
 
+// SOA RR type. Defined here rather than in dns_type because the cache
+// is the only consumer.
+constexpr uint16_t kTypeSOA = 6;
+
 // RCODEs that must never be cached regardless of TTL.
 constexpr uint8_t kRcodeServFail = 2;
 constexpr uint8_t kRcodeNotImp   = 4;
+constexpr uint8_t kRcodeNxDomain = 3;
 
 constexpr size_t kTtlBackOffset  = 6;  // RDLEN(2) + TTL(4) back from RDATA
 
@@ -33,6 +38,21 @@ void collect_section_offsets(std::span<const std::byte> base,
         const auto rdata_off = static_cast<size_t>(rr.rdata.data() - base.data());
         out.push_back(rdata_off - kTtlBackOffset);
     }
+}
+
+// RFC 2308 §3: cache lifetime of a negative response is min(SOA.TTL,
+// SOA.MINIMUM). MINIMUM is the trailing 32-bit field of SOA RDATA;
+// the preceding fields are MNAME (variable), RNAME (variable), then
+// SERIAL/REFRESH/RETRY/EXPIRE/MINIMUM (5 × u32). We only need the
+// last 4 bytes of RDATA for MINIMUM — robust against compression in
+// MNAME/RNAME because we read by offset from rdata end.
+std::optional<uint32_t> read_soa_minimum(const ResourceRecord& soa) {
+    if (soa.rdata.size() < 4) return std::nullopt;
+    const auto* p = soa.rdata.data() + soa.rdata.size() - 4;
+    return (uint32_t{std::to_integer<uint8_t>(p[0])} << 24) |
+           (uint32_t{std::to_integer<uint8_t>(p[1])} << 16) |
+           (uint32_t{std::to_integer<uint8_t>(p[2])} <<  8) |
+            uint32_t{std::to_integer<uint8_t>(p[3])};
 }
 
 } // namespace
@@ -72,6 +92,30 @@ std::chrono::seconds compute_cache_ttl(const DnsMessage& response) {
     scan(response.authority);
 
     if (!saw_any || min_ttl == 0) return std::chrono::seconds{0};
+
+    // RFC 2308: for negative responses (NXDOMAIN or empty answer with
+    // SOA in authority), cap the cache lifetime by SOA.MINIMUM. The
+    // SOA TTL is already in `min_ttl`; we additionally clamp by MINIMUM.
+    const bool is_negative =
+        response.header.rcode == kRcodeNxDomain ||
+        (response.answers.empty() && !response.authority.empty());
+    if (is_negative) {
+        for (const auto& rr : response.authority) {
+            if (rr.type != kTypeSOA) continue;
+            if (auto minimum = read_soa_minimum(rr)) {
+                min_ttl = std::min(min_ttl, *minimum);
+            }
+            break;  // RFC says only one SOA in the authority section
+        }
+        // RFC 2308 §5: implementations MUST NOT cache negative responses
+        // for longer than 24 hours, regardless of the SOA values. Without
+        // this cap, a hostile or misconfigured upstream could pin a bogus
+        // NXDOMAIN for years (MINIMUM is a uint32 — up to ~136 years).
+        constexpr uint32_t kRfc2308NegativeCacheCeiling = 86400;
+        min_ttl = std::min(min_ttl, kRfc2308NegativeCacheCeiling);
+        if (min_ttl == 0) return std::chrono::seconds{0};
+    }
+
     return std::chrono::seconds{min_ttl};
 }
 
@@ -139,10 +183,29 @@ void DnsCache::insert(CacheKey key, std::vector<std::byte> response,
     e.response    = std::move(response);
 
     std::unique_lock lk{mu_};
-    if (map_.size() >= cfg_.max_entries && !map_.contains(key)) {
-        return;  // full; skip insert rather than pick an arbitrary victim
+
+    // Replace existing entry: drop its LRU node first.
+    if (auto existing = map_.find(key); existing != map_.end()) {
+        lru_.erase(existing->second.lru_it);
+        map_.erase(existing);
     }
-    map_[std::move(key)] = std::move(e);
+
+    // Make room if at capacity.
+    while (map_.size() >= cfg_.max_entries) {
+        evict_one_locked();
+    }
+
+    e.lru_it = lru_.insert(lru_.end(), key);  // back = MRU
+    map_.emplace(std::move(key), std::move(e));
+    inserts_.fetch_add(1, std::memory_order_relaxed);
+}
+
+void DnsCache::evict_one_locked() {
+    if (lru_.empty()) return;
+    auto victim_it = map_.find(lru_.front());
+    lru_.pop_front();
+    if (victim_it != map_.end()) map_.erase(victim_it);
+    lru_evictions_.fetch_add(1, std::memory_order_relaxed);
 }
 
 std::optional<std::vector<std::byte>>
@@ -153,16 +216,30 @@ DnsCache::lookup(const CacheKey& key, uint16_t client_id) {
     std::vector<size_t> offsets;
     std::chrono::seconds remaining{0};
     {
-        std::shared_lock lk{mu_};
+        // Need exclusive lock because we mutate the LRU list on hit.
+        std::unique_lock lk{mu_};
         const auto it = map_.find(key);
-        if (it == map_.end()) return std::nullopt;
-        if (it->second.expires_at <= now) return std::nullopt;  // expired; sweeper will remove
+        if (it == map_.end()) {
+            misses_.fetch_add(1, std::memory_order_relaxed);
+            return std::nullopt;
+        }
+        if (it->second.expires_at <= now) {
+            // Expired — drop now so the next miss isn't spent walking past it.
+            lru_.erase(it->second.lru_it);
+            map_.erase(it);
+            misses_.fetch_add(1, std::memory_order_relaxed);
+            return std::nullopt;
+        }
 
         copy    = it->second.response;
         offsets = it->second.ttl_offsets;
         remaining = std::chrono::duration_cast<std::chrono::seconds>(
             it->second.expires_at - now);
+        // Promote to MRU end. splice is O(1) with the iterator we stored.
+        lru_.splice(lru_.end(), lru_, it->second.lru_it);
     }
+
+    hits_.fetch_add(1, std::memory_order_relaxed);
 
     const auto ttl = static_cast<uint32_t>(
         std::min<int64_t>(remaining.count(),
@@ -182,18 +259,30 @@ size_t DnsCache::sweep_expired() {
     size_t n = 0;
     for (auto it = map_.begin(); it != map_.end();) {
         if (it->second.expires_at <= now) {
+            lru_.erase(it->second.lru_it);
             it = map_.erase(it);
             ++n;
         } else {
             ++it;
         }
     }
+    if (n) expired_sweeps_.fetch_add(n, std::memory_order_relaxed);
     return n;
 }
 
 size_t DnsCache::size() const {
     std::shared_lock lk{mu_};
     return map_.size();
+}
+
+DnsCache::Stats DnsCache::stats() const noexcept {
+    return {
+        .hits            = hits_.load(std::memory_order_relaxed),
+        .misses          = misses_.load(std::memory_order_relaxed),
+        .inserts         = inserts_.load(std::memory_order_relaxed),
+        .lru_evictions   = lru_evictions_.load(std::memory_order_relaxed),
+        .expired_sweeps  = expired_sweeps_.load(std::memory_order_relaxed),
+    };
 }
 
 void DnsCache::sweeper_loop(std::stop_token st) {

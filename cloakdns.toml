@@ -1,0 +1,60 @@
+# CloakDNS configuration. See include/cloakdns/config.hpp for the full schema.
+# All sections are optional; omitted fields get documented defaults.
+
+[server]
+listen_addr = "127.0.0.1"
+listen_port = 5354
+
+[upstream]
+servers            = ["1.1.1.1:53", "9.9.9.9:53"]
+timeout_ms         = 2000
+retries_on_primary = 1
+padding_block_size = 128      # RFC 8467; 0 disables
+
+[blocklist]
+# Static, research-cited tiers ship in the repo under blocklists/ and
+# tools/priority_tiers/. The fetched aggregate (run
+# `python tools/update_blocklists.py`) writes blocklists/merged.txt
+# from StevenBlack / OISD / EasyList / EasyPrivacy / Peter Lowe /
+# NextDNS-CNAME and any optional feeds enabled in
+# tools/blocklist_sources.toml. Add `blocklists/merged.txt` here
+# after running the updater.
+sources = [
+    "blocklists/tier1.txt",
+    "tools/priority_tiers/fingerprinting.txt",
+    "tools/priority_tiers/cname_cloaking.txt",
+    "tools/priority_tiers/data_brokers.txt",
+    "tools/priority_tiers/cookie_syncing.txt",
+    "tools/priority_tiers/email_tracking.txt",
+    "tools/priority_tiers/server_side_apis.txt",
+    # "tools/priority_tiers/smart_device_telemetry.txt",  # opt-in: may break devices
+    # "blocklists/merged.txt",                            # uncomment after update_blocklists.py runs
+]
+
+# Optional. Domains in any of these files override blocklist matches —
+# use for legitimate sites that share infra with trackers (e.g. specific
+# subdomains of googleapis.com or amazonaws.com that you actually want).
+# Same hosts-file format as blocklist sources.
+[allowlist]
+sources = []
+
+[cache]
+max_entries      = 50000
+jitter_max_ms    = 5          # feature 12: FP-Radar timing-fingerprint defense
+sweep_interval_s = 30
+
+[uncloak]
+max_depth = 8                 # RFC 1034 CNAME chain depth
+
+[logging]
+path           = "cloakdns-queries.jsonl"   # empty string disables query logging
+async          = true
+queue_size     = 8192
+# Rotate the log when it crosses this many bytes. 0 disables rotation.
+# Each rotation renames the current file to "<path>.YYYYMMDDTHHMMSSZ"
+# and opens a fresh one.
+max_size_bytes = 0
+# When true, the "client" field in each JSON line is replaced with a
+# stable FNV-1a hash prefixed with "hash:" — useful when query logs may
+# leave the host or be aggregated for analytics.
+redact_client  = false

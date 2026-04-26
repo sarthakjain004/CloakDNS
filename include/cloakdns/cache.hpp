@@ -4,10 +4,12 @@
 
 #include <asio/awaitable.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <list>
 #include <optional>
 #include <shared_mutex>
 #include <span>
@@ -38,6 +40,14 @@ public:
         size_t max_entries{50000};
     };
 
+    struct Stats {
+        size_t hits{};
+        size_t misses{};
+        size_t inserts{};
+        size_t lru_evictions{};
+        size_t expired_sweeps{};
+    };
+
     explicit DnsCache(Config cfg = {});
     ~DnsCache();
 
@@ -46,9 +56,9 @@ public:
 
     // Insert a response. `parsed` must be the DnsMessage produced by
     // parsing `response`; it's consumed for TTL offset collection,
-    // avoiding a second parse inside the cache. If `ttl` is zero or
-    // the cache is full, the insert is skipped (simplest eviction
-    // policy for M6 — M13 can add LRU).
+    // avoiding a second parse inside the cache. If `ttl` is zero the
+    // insert is skipped. If the cache is full, the LRU entry is evicted
+    // to make room.
     void insert(CacheKey key, std::vector<std::byte> response,
                 const DnsMessage& parsed, std::chrono::seconds ttl);
 
@@ -56,6 +66,7 @@ public:
     // to the remaining time and the transaction id set to `client_id`
     // so the caller can forward the bytes unmodified. Returns nullopt
     // on miss or expired entry; expired entries are removed on hit.
+    // Promotes the entry to the MRU end of the LRU list on hit.
     std::optional<std::vector<std::byte>>
     lookup(const CacheKey& key, uint16_t client_id);
 
@@ -67,18 +78,30 @@ public:
 
     std::chrono::milliseconds jitter_max() const { return cfg_.jitter_max; }
 
+    Stats stats() const noexcept;
+
 private:
     struct Entry {
         std::vector<std::byte> response;
         std::chrono::steady_clock::time_point expires_at;
         std::vector<size_t> ttl_offsets;   // byte positions of TTL fields within `response`
+        std::list<CacheKey>::iterator lru_it{};  // points into lru_; spliced on hit
     };
 
     void sweeper_loop(std::stop_token st);
+    void evict_one_locked();   // mu_ held in unique mode
 
     Config cfg_;
     mutable std::shared_mutex mu_;
     std::unordered_map<CacheKey, Entry, CacheKeyHash> map_;
+    std::list<CacheKey> lru_;     // front = LRU, back = MRU
+
+    std::atomic<size_t> hits_{0};
+    std::atomic<size_t> misses_{0};
+    std::atomic<size_t> inserts_{0};
+    std::atomic<size_t> lru_evictions_{0};
+    std::atomic<size_t> expired_sweeps_{0};
+
     std::jthread sweeper_;  // declared last so it's stopped before other members are destroyed
 };
 

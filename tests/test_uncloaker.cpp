@@ -56,18 +56,25 @@ void append_labels(std::vector<std::byte>& out, std::string_view name) {
     out.push_back(std::byte{0});
 }
 
+constexpr uint16_t kTypeAAAA = cloak::dns_type::AAAA;
+
 struct Rr {
     std::string name;
     uint16_t type;
-    // Either a 4-byte IPv4 address or a CNAME target name (plain string).
-    std::variant<std::array<uint8_t, 4>, std::string> rdata;
+    // Either a 4-byte IPv4 address, a 16-byte IPv6 address, or a CNAME
+    // target name (plain string).
+    std::variant<std::array<uint8_t, 4>,
+                 std::array<uint8_t, 16>,
+                 std::string> rdata;
 };
 
-// Build a DNS response for `qname` (type A, class IN) with the given
-// answer records. No compression; test fixtures prioritize clarity.
+// Build a DNS response for `qname` (class IN) with the given answer
+// records. `qtype` defaults to A; pass kTypeAAAA for IPv6 tests. No
+// compression; test fixtures prioritize clarity.
 std::vector<std::byte>
 build_response(uint16_t id, std::string_view qname,
-               const std::vector<Rr>& answers) {
+               const std::vector<Rr>& answers,
+               uint16_t qtype = 1) {
     std::vector<std::byte> out;
     out.resize(12);
     put_u16_be(out, 0, id);
@@ -78,7 +85,8 @@ build_response(uint16_t id, std::string_view qname,
     put_u16_be(out, 10, 0);
 
     append_labels(out, qname);
-    out.push_back(std::byte{0}); out.push_back(std::byte{1});   // QTYPE=A
+    out.push_back(std::byte{static_cast<uint8_t>(qtype >> 8)});
+    out.push_back(std::byte{static_cast<uint8_t>(qtype & 0xff)});
     out.push_back(std::byte{0}); out.push_back(std::byte{1});   // QCLASS=IN
 
     for (const auto& a : answers) {
@@ -91,8 +99,10 @@ build_response(uint16_t id, std::string_view qname,
         out.push_back(std::byte{1}); out.push_back(std::byte{0x2c});
 
         std::vector<std::byte> rdata;
-        if (const auto* ip = std::get_if<std::array<uint8_t, 4>>(&a.rdata)) {
-            for (uint8_t b : *ip) rdata.push_back(std::byte{b});
+        if (const auto* ip4 = std::get_if<std::array<uint8_t, 4>>(&a.rdata)) {
+            for (uint8_t b : *ip4) rdata.push_back(std::byte{b});
+        } else if (const auto* ip6 = std::get_if<std::array<uint8_t, 16>>(&a.rdata)) {
+            for (uint8_t b : *ip6) rdata.push_back(std::byte{b});
         } else {
             const auto& target = std::get<std::string>(a.rdata);
             append_labels(rdata, target);
@@ -401,4 +411,39 @@ TEST(CnameUncloaker, QnameApexBlockedNotReachedHereByDesign) {
     auto r = fx.run("site.example", response);
     EXPECT_EQ(r.status, cloak::UncloakStatus::Blocked);
     EXPECT_EQ(r.hit.rule, "tracker.example");
+}
+
+// ---------- AAAA / IPv6 ----------
+
+TEST(CnameUncloaker, AaaaCleanChainTerminatesOnAaaa) {
+    UncloakFixture fx;
+    std::array<uint8_t, 16> v6 = {
+        0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
+        0,    0,    0,    0,    0, 0, 0, 1};
+    auto response = build_response(0x6666, "edge.example.com", {
+        {"edge.example.com", kTypeCNAME, std::string{"v6.cdn.example"}},
+        {"v6.cdn.example",   kTypeAAAA,  v6},
+    }, kTypeAAAA);
+    auto r = fx.run("edge.example.com", response);
+    EXPECT_EQ(r.status, cloak::UncloakStatus::Clean);
+    ASSERT_EQ(r.chain.size(), 2u);
+    EXPECT_EQ(r.chain[1], "v6.cdn.example");
+}
+
+TEST(CnameUncloaker, AaaaBlockedThroughCnameChain) {
+    UncloakFixture fx;
+    fx.bl.add_suffix("tracker.example");
+
+    std::array<uint8_t, 16> v6 = {
+        0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
+        0,    0,    0,    0,    0, 0, 0, 0xaa};
+    auto response = build_response(0x7777, "site.example", {
+        {"site.example",          kTypeCNAME, std::string{"v6.tracker.example"}},
+        {"v6.tracker.example",    kTypeAAAA,  v6},
+    }, kTypeAAAA);
+    auto r = fx.run("site.example", response);
+    EXPECT_EQ(r.status, cloak::UncloakStatus::Blocked);
+    EXPECT_EQ(r.hit.rule, "tracker.example");
+    ASSERT_EQ(r.chain.size(), 2u);
+    EXPECT_EQ(r.chain[1], "v6.tracker.example");
 }

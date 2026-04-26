@@ -1,0 +1,42 @@
+# Second cloakdns instance for capturing real Chrome traffic.
+# Bound to 127.0.0.1:53 so it can be the system resolver via netsh.
+# Separate query log so it doesn't mix with the crawl's log.
+
+[server]
+listen_addr = "127.0.0.1"
+listen_port = 53
+
+[upstream]
+servers            = ["1.1.1.1:53", "9.9.9.9:53"]
+timeout_ms         = 2000
+retries_on_primary = 1
+padding_block_size = 128
+
+[blocklist]
+sources = [
+    "blocklists/tier1.txt",
+    "tools/priority_tiers/fingerprinting.txt",
+    "tools/priority_tiers/cname_cloaking.txt",
+    "tools/priority_tiers/data_brokers.txt",
+    "tools/priority_tiers/cookie_syncing.txt",
+    "tools/priority_tiers/email_tracking.txt",
+    "tools/priority_tiers/server_side_apis.txt",
+]
+
+[allowlist]
+sources = []
+
+[cache]
+max_entries      = 50000
+jitter_max_ms    = 5
+sweep_interval_s = 30
+
+[uncloak]
+max_depth = 8
+
+[logging]
+path           = "chrome-capture.jsonl"
+async          = true
+queue_size     = 8192
+max_size_bytes = 0
+redact_client  = false

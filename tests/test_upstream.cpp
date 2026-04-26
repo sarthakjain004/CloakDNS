@@ -49,14 +49,18 @@ std::vector<std::byte> make_query(uint16_t id) {
 // Starts a coroutine that reads one packet on `fake`, optionally mutates
 // it (flipping QR and setting RA) or overriding the id, and sends it
 // back. `captured_id` is set to the id seen on the wire (from us).
+// `captured_len` (if non-null) receives the byte count of the received
+// query — used by the M7 padding tests to assert wire-length.
 void fake_responder(udp::socket& fake,
                     std::atomic<uint16_t>& captured_id,
-                    std::optional<uint16_t> override_id = std::nullopt) {
+                    std::optional<uint16_t> override_id = std::nullopt,
+                    std::atomic<std::size_t>* captured_len = nullptr) {
     auto buf = std::make_shared<std::array<std::byte, 4096>>();
     auto from = std::make_shared<udp::endpoint>();
     fake.async_receive_from(asio::buffer(*buf), *from,
-        [&, buf, from, override_id](std::error_code ec, std::size_t n) {
+        [&, buf, from, override_id, captured_len](std::error_code ec, std::size_t n) {
             if (ec) return;
+            if (captured_len) *captured_len = n;
             captured_id = static_cast<uint16_t>(
                 (uint16_t(std::to_integer<uint8_t>((*buf)[0])) << 8) |
                  uint16_t(std::to_integer<uint8_t>((*buf)[1])));
@@ -204,4 +208,56 @@ TEST(Upstream, EmptyServersRejected) {
     EXPECT_THROW(
         (cloak::UpstreamForwarder{ctx, cloak::UpstreamForwarder::Config{}}),
         std::invalid_argument);
+}
+
+TEST(Upstream, OutboundQueryIsPaddedToBlockSize) {
+    asio::io_context ctx;
+    udp::socket fake{ctx, udp::endpoint(make_address("127.0.0.1"), 0)};
+    auto fake_ep = fake.local_endpoint();
+
+    std::atomic<uint16_t> captured_id{0};
+    std::atomic<std::size_t> received_len{0};
+    fake_responder(fake, captured_id, std::nullopt, &received_len);
+
+    cloak::UpstreamForwarder fwd{ctx, cloak::UpstreamForwarder::Config{
+        .servers = {fake_ep},
+        .timeout = 500ms,
+        .retries_on_primary = 0,
+        .padding_block_size = 128,
+    }};
+
+    auto query = make_query(0xabcd);
+    ASSERT_LT(query.size(), 128u);
+
+    co_spawn(ctx, [&]() -> awaitable<void> {
+        (void)co_await fwd.forward(query);
+    }(), detached);
+    ctx.run();
+
+    EXPECT_EQ(received_len.load(), 128u);
+}
+
+TEST(Upstream, PaddingDisabledForwardsOriginalLength) {
+    asio::io_context ctx;
+    udp::socket fake{ctx, udp::endpoint(make_address("127.0.0.1"), 0)};
+    auto fake_ep = fake.local_endpoint();
+
+    std::atomic<uint16_t> captured_id{0};
+    std::atomic<std::size_t> received_len{0};
+    fake_responder(fake, captured_id, std::nullopt, &received_len);
+
+    cloak::UpstreamForwarder fwd{ctx, cloak::UpstreamForwarder::Config{
+        .servers = {fake_ep},
+        .timeout = 500ms,
+        .retries_on_primary = 0,
+        .padding_block_size = 0,
+    }};
+
+    auto query = make_query(0xabcd);
+    co_spawn(ctx, [&]() -> awaitable<void> {
+        (void)co_await fwd.forward(query);
+    }(), detached);
+    ctx.run();
+
+    EXPECT_EQ(received_len.load(), query.size());
 }

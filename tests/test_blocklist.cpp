@@ -162,6 +162,45 @@ TEST(BlocklistHosts, MissingFileThrows) {
                  std::runtime_error);
 }
 
+// ---- allowlist (passthrough) ----
+
+TEST(Allowlist, ExactBeatsBlock) {
+    Blocklist bl;
+    bl.add_suffix("googleapis.com");
+    bl.add_allow_exact("storage.googleapis.com");
+    EXPECT_FALSE(bl.match("storage.googleapis.com").blocked);
+    EXPECT_TRUE(bl.match("ads.googleapis.com").blocked);
+}
+
+TEST(Allowlist, SuffixBeatsBlock) {
+    Blocklist bl;
+    bl.add_suffix("amazonaws.com");
+    bl.add_allow_suffix("s3.amazonaws.com");
+    EXPECT_FALSE(bl.match("bucket.s3.amazonaws.com").blocked);
+    EXPECT_FALSE(bl.match("s3.amazonaws.com").blocked);
+    EXPECT_TRUE(bl.match("evil.amazonaws.com").blocked);
+}
+
+TEST(Allowlist, AllowedReportsTrue) {
+    Blocklist bl;
+    bl.add_allow_suffix("partner.example");
+    EXPECT_TRUE(bl.allowed("api.partner.example"));
+    EXPECT_FALSE(bl.allowed("attacker.example"));
+}
+
+TEST(Allowlist, LoadAllowlistFile) {
+    auto p = make_temp_hosts(
+        "# allow some legit subdomains\n"
+        "0.0.0.0 maps.googleapis.com\n"
+        "0.0.0.0 storage.googleapis.com\n");
+    Blocklist bl;
+    bl.add_suffix("googleapis.com");
+    EXPECT_EQ(bl.load_allowlist_file(p), 2u);
+    EXPECT_FALSE(bl.match("maps.googleapis.com").blocked);
+    EXPECT_FALSE(bl.match("storage.googleapis.com").blocked);
+    EXPECT_TRUE(bl.match("doubleclick.googleapis.com").blocked);
+}
+
 // ---- parameterized tier tests ----
 
 #ifdef CLOAK_TEST_BLOCKLIST

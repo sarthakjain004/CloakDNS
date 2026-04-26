@@ -266,7 +266,7 @@ TEST(DnsCache, LookupRewritesTtlToRemaining) {
     EXPECT_GT(msg.answers[0].ttl, 995u);
 }
 
-TEST(DnsCache, MaxEntriesCapRespected) {
+TEST(DnsCache, MaxEntriesCapRespectedWithLruEviction) {
     cloak::DnsCache::Config cfg;
     cfg.max_entries = 2;
     cfg.sweep_interval = 1h;
@@ -288,12 +288,44 @@ TEST(DnsCache, MaxEntriesCapRespected) {
     }
     {
         auto [c, cp] = mk("c.example");
-        cache.insert(key_for("c.example"), c, cp, 300s);  // refused: full
+        cache.insert(key_for("c.example"), c, cp, 300s);  // evicts a (LRU)
     }
     EXPECT_EQ(cache.size(), 2u);
-    EXPECT_TRUE(cache.lookup(key_for("a.example"), 0).has_value());
+    EXPECT_FALSE(cache.lookup(key_for("a.example"), 0).has_value());
     EXPECT_TRUE(cache.lookup(key_for("b.example"), 0).has_value());
-    EXPECT_FALSE(cache.lookup(key_for("c.example"), 0).has_value());
+    EXPECT_TRUE(cache.lookup(key_for("c.example"), 0).has_value());
+    EXPECT_GE(cache.stats().lru_evictions, 1u);
+}
+
+TEST(DnsCache, LruPromotesOnHit) {
+    cloak::DnsCache::Config cfg;
+    cfg.max_entries = 2;
+    cfg.sweep_interval = 1h;
+    cloak::DnsCache cache{cfg};
+
+    auto mk = [](std::string_view name) {
+        auto b = build_response(0, 0, name,
+            {{std::string{name}, kTypeA, 300, ip(1, 2, 3, 4)}});
+        return std::pair{b, parse_bytes(b)};
+    };
+
+    {
+        auto [a, ap] = mk("a.example");
+        cache.insert(key_for("a.example"), a, ap, 300s);
+    }
+    {
+        auto [b, bp] = mk("b.example");
+        cache.insert(key_for("b.example"), b, bp, 300s);
+    }
+    // Touch a.example so it becomes MRU; b is now LRU.
+    EXPECT_TRUE(cache.lookup(key_for("a.example"), 0).has_value());
+    {
+        auto [c, cp] = mk("c.example");
+        cache.insert(key_for("c.example"), c, cp, 300s);  // evicts b, not a
+    }
+    EXPECT_TRUE(cache.lookup(key_for("a.example"), 0).has_value());
+    EXPECT_FALSE(cache.lookup(key_for("b.example"), 0).has_value());
+    EXPECT_TRUE(cache.lookup(key_for("c.example"), 0).has_value());
 }
 
 // ---------- apply_jitter ----------

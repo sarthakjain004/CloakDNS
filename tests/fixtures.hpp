@@ -40,6 +40,48 @@ inline constexpr std::array<std::byte, 40> kExampleQueryEdns{{
 }};
 
 // -------------------------------------------------------------------------
+// kExampleQueryAaaa — 29 bytes
+//
+// Bare AAAA query for example.com (no EDNS). Used for AAAA-block tests.
+//   qtype = 28 (AAAA), qclass = 1 (IN)
+// -------------------------------------------------------------------------
+inline constexpr std::array<std::byte, 29> kExampleQueryAaaa{{
+    std::byte{0xa3}, std::byte{0x7d},            // ID
+    std::byte{0x01}, std::byte{0x00},            // flags: RD=1
+    std::byte{0x00}, std::byte{0x01},            // QDCOUNT=1
+    std::byte{0x00}, std::byte{0x00},            // ANCOUNT=0
+    std::byte{0x00}, std::byte{0x00},            // NSCOUNT=0
+    std::byte{0x00}, std::byte{0x00},            // ARCOUNT=0
+    std::byte{0x07}, std::byte{'e'}, std::byte{'x'}, std::byte{'a'},
+    std::byte{'m'},  std::byte{'p'}, std::byte{'l'}, std::byte{'e'},
+    std::byte{0x03}, std::byte{'c'}, std::byte{'o'}, std::byte{'m'},
+    std::byte{0x00},                             // name terminator
+    std::byte{0x00}, std::byte{0x1c},            // QTYPE = AAAA (28)
+    std::byte{0x00}, std::byte{0x01},            // QCLASS = IN
+}};
+
+// -------------------------------------------------------------------------
+// kExampleQueryHttps — 29 bytes
+//
+// Bare HTTPS (qtype 65) query for example.com. Used for NODATA-block
+// tests covering Chrome's H3 endpoint hint queries.
+// -------------------------------------------------------------------------
+inline constexpr std::array<std::byte, 29> kExampleQueryHttps{{
+    std::byte{0xa3}, std::byte{0x7e},            // ID
+    std::byte{0x01}, std::byte{0x00},            // flags: RD=1
+    std::byte{0x00}, std::byte{0x01},            // QDCOUNT=1
+    std::byte{0x00}, std::byte{0x00},            // ANCOUNT=0
+    std::byte{0x00}, std::byte{0x00},            // NSCOUNT=0
+    std::byte{0x00}, std::byte{0x00},            // ARCOUNT=0
+    std::byte{0x07}, std::byte{'e'}, std::byte{'x'}, std::byte{'a'},
+    std::byte{'m'},  std::byte{'p'}, std::byte{'l'}, std::byte{'e'},
+    std::byte{0x03}, std::byte{'c'}, std::byte{'o'}, std::byte{'m'},
+    std::byte{0x00},                             // name terminator
+    std::byte{0x00}, std::byte{0x41},            // QTYPE = HTTPS (65)
+    std::byte{0x00}, std::byte{0x01},            // QCLASS = IN
+}};
+
+// -------------------------------------------------------------------------
 // kExampleResponseCompressed — 49 bytes
 //
 // Synthetic response: www.example.com A IN → 93.184.216.34, with the

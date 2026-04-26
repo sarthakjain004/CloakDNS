@@ -17,6 +17,19 @@ std::vector<std::byte>
 build_block_a_response(std::span<const std::byte> query,
                        const DnsMessage& parsed);
 
+// Build an AAAA :: response (16 zero bytes) for an AAAA query.
+std::vector<std::byte>
+build_block_aaaa_response(std::span<const std::byte> query,
+                          const DnsMessage& parsed);
+
+// Build an empty NOERROR (NODATA) response: ANCOUNT=0, RCODE=0. Used to
+// sinkhole non-address qtypes (SVCB, HTTPS, MX, ...) for blocked names.
+// NXDOMAIN would be wrong here — we are answering A/AAAA for the same
+// name, so the name does exist; this RR type just doesn't.
+std::vector<std::byte>
+build_block_nodata_response(std::span<const std::byte> query,
+                            const DnsMessage& parsed);
+
 // Build a REFUSED response (RCODE=5, no answers) for a parsed query.
 std::vector<std::byte>
 build_refused_response(std::span<const std::byte> query,

@@ -102,6 +102,69 @@ TEST(DnsWriter, BlockResponseLength) {
     EXPECT_EQ(resp.size(), parsed.question_section_end + 16);
 }
 
+// ---- block AAAA response ----
+
+TEST(DnsWriter, BlockAaaaResponseShape) {
+    auto q = as_span(kExampleQueryAaaa);
+    auto parsed = parse(q);
+    auto resp = build_block_aaaa_response(q, parsed);
+    auto r = parse(as_span(resp));
+
+    EXPECT_TRUE(r.header.qr);
+    EXPECT_TRUE(r.header.ra);
+    EXPECT_EQ(r.header.rcode, 0);
+    EXPECT_EQ(r.header.qdcount, 1);
+    EXPECT_EQ(r.header.ancount, 1);
+
+    ASSERT_EQ(r.questions.size(), 1u);
+    EXPECT_EQ(r.questions[0].qname, "example.com");
+    EXPECT_EQ(r.questions[0].qtype, 28);
+
+    ASSERT_EQ(r.answers.size(), 1u);
+    const auto& a = r.answers[0];
+    EXPECT_EQ(a.name, "example.com");
+    EXPECT_EQ(a.type, 28);
+    EXPECT_EQ(a.rclass, 1);
+    EXPECT_EQ(a.ttl, 300u);
+    ASSERT_EQ(a.rdata.size(), 16u);
+    for (size_t i = 0; i < 16; ++i)
+        EXPECT_EQ(std::to_integer<uint8_t>(a.rdata[i]), 0);
+
+    EXPECT_EQ(resp.size(), parsed.question_section_end + 28);
+}
+
+// ---- block NODATA response (HTTPS / SVCB / etc.) ----
+
+TEST(DnsWriter, BlockNodataResponseShape) {
+    auto q = as_span(kExampleQueryHttps);
+    auto parsed = parse(q);
+    auto resp = build_block_nodata_response(q, parsed);
+    auto r = parse(as_span(resp));
+
+    EXPECT_TRUE(r.header.qr);
+    EXPECT_TRUE(r.header.ra);
+    EXPECT_EQ(r.header.rcode, 0);                 // NOERROR (NODATA, not NXDOMAIN)
+    EXPECT_EQ(r.header.qdcount, 1);
+    EXPECT_EQ(r.header.ancount, 0);
+    EXPECT_EQ(r.header.nscount, 0);
+    EXPECT_EQ(r.header.arcount, 0);
+    EXPECT_TRUE(r.answers.empty());
+
+    ASSERT_EQ(r.questions.size(), 1u);
+    EXPECT_EQ(r.questions[0].qname, "example.com");
+    EXPECT_EQ(r.questions[0].qtype, 65);
+
+    EXPECT_EQ(resp.size(), parsed.question_section_end);
+}
+
+TEST(DnsWriter, BlockNodataPreservesId) {
+    auto q = as_span(kExampleQueryHttps);
+    auto parsed = parse(q);
+    auto resp = build_block_nodata_response(q, parsed);
+    auto r = parse(as_span(resp));
+    EXPECT_EQ(r.header.id, parsed.header.id);
+}
+
 // ---- REFUSED response ----
 
 TEST(DnsWriter, RefusedResponseRcode) {

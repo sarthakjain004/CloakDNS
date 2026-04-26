@@ -13,7 +13,11 @@ add_executable(cloak_tests
     test_blocklist.cpp
     test_upstream.cpp
     test_uncloaker.cpp
-    test_cache.cpp)
+    test_cache.cpp
+    test_edns_padding.cpp
+    test_config.cpp
+    test_query_log.cpp
+    test_paths.cpp)
 target_include_directories(cloak_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(cloak_tests PRIVATE
     CLOAK_TEST_BLOCKLIST="${CMAKE_SOURCE_DIR}/blocklists/tier1.txt")
