@@ -48,7 +48,10 @@ public:
         size_t expired_sweeps{};
     };
 
-    explicit DnsCache(Config cfg = {});
+    // Two overloads instead of `Config cfg = {}` — see uncloaker.hpp
+    // for the same Clang 18 / nested-Config rationale.
+    DnsCache();
+    explicit DnsCache(Config cfg);
     ~DnsCache();
 
     DnsCache(const DnsCache&) = delete;

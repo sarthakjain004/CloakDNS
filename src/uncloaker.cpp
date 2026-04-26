@@ -57,6 +57,10 @@ WalkOutput walk_answers(const DnsMessage& msg,
 } // namespace
 
 CnameUncloaker::CnameUncloaker(UpstreamForwarder& forwarder,
+                               const Blocklist& blocklist)
+    : CnameUncloaker(forwarder, blocklist, Config{}) {}
+
+CnameUncloaker::CnameUncloaker(UpstreamForwarder& forwarder,
                                const Blocklist& blocklist,
                                Config cfg)
     : forwarder_(forwarder), blocklist_(blocklist), cfg_(cfg) {}
