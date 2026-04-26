@@ -32,9 +32,17 @@ public:
         int max_depth{8};             // RFC 1034 recommends 8 levels of indirection
     };
 
+    // Two overloads instead of `Config cfg = {}` — Clang 18 rejects a
+    // default arg whose value is `Config{}` when Config is a nested
+    // struct of the same class with default member initializers,
+    // because the inline initializers aren't fully visible until the
+    // class definition closes (CWG 2335 / known Clang regression).
+    // GCC and MSVC accept it; the overload split builds everywhere.
+    CnameUncloaker(UpstreamForwarder& forwarder,
+                   const Blocklist& blocklist);
     CnameUncloaker(UpstreamForwarder& forwarder,
                    const Blocklist& blocklist,
-                   Config cfg = {});
+                   Config cfg);
 
     CnameUncloaker(const CnameUncloaker&) = delete;
     CnameUncloaker& operator=(const CnameUncloaker&) = delete;

@@ -163,6 +163,8 @@ asio::awaitable<void> apply_jitter(std::chrono::milliseconds max_jitter) {
 
 // ---------- DnsCache ----------
 
+DnsCache::DnsCache() : DnsCache(Config{}) {}
+
 DnsCache::DnsCache(Config cfg) : cfg_(cfg) {
     sweeper_ = std::jthread{[this](std::stop_token st) { sweeper_loop(st); }};
 }
