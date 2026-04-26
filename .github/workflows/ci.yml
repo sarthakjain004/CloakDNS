@@ -93,9 +93,12 @@ jobs:
       - name: Build
         run: cmake --build build -j
 
+      # Apple Clang's ASan doesn't ship LeakSanitizer (LSan is
+      # Linux-only); detect_leaks=1 fatals at startup. Drop it for the
+      # macOS job; the Linux ASan job already covers leak detection.
       - name: Test
         env:
-          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:halt_on_error=1
+          ASAN_OPTIONS: abort_on_error=1:halt_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: ctest --test-dir build --output-on-failure
 
