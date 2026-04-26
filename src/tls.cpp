@@ -105,24 +105,16 @@ std::string compute_spki_pin(X509* cert) {
     return std::string{"sha256/"} + base64_encode(hash, SHA256_DIGEST_LENGTH);
 }
 
-Context::Context(const ContextConfig& cfg) : cfg_(&cfg) {
+Context::Context(const ContextConfig& cfg)
+    : ctx_(asio::ssl::context::tls_client), cfg_(&cfg) {
     init();
-    ctx_ = SSL_CTX_new(TLS_client_method());
-    if (!ctx_) throw std::runtime_error{"tls: SSL_CTX_new failed"};
-
-    SSL_CTX_set_min_proto_version(ctx_, TLS1_2_VERSION);
-    if (!SSL_CTX_set_default_verify_paths(ctx_)) {
-        SSL_CTX_free(ctx_);
-        ctx_ = nullptr;
+    SSL_CTX* raw = ctx_.native_handle();
+    SSL_CTX_set_min_proto_version(raw, TLS1_2_VERSION);
+    if (!SSL_CTX_set_default_verify_paths(raw))
         throw std::runtime_error{"tls: SSL_CTX_set_default_verify_paths failed"};
-    }
-    SSL_CTX_set_verify(ctx_, SSL_VERIFY_PEER, verify_callback);
-    SSL_CTX_set_ex_data(ctx_, g_ex_data_idx.load(std::memory_order_acquire),
+    SSL_CTX_set_verify(raw, SSL_VERIFY_PEER, verify_callback);
+    SSL_CTX_set_ex_data(raw, g_ex_data_idx.load(std::memory_order_acquire),
                         const_cast<ContextConfig*>(cfg_));
-}
-
-Context::~Context() {
-    if (ctx_) SSL_CTX_free(ctx_);
 }
 
 } // namespace cloak::tls

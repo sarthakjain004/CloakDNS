@@ -104,10 +104,8 @@ dot_try_once(asio::io_context& ctx,
              const std::string& servername,
              std::span<const std::byte> outbound,
              std::chrono::milliseconds timeout) {
-    asio::ssl::context asio_ssl_ctx{tls_ctx.native()};
-
     auto stream = std::make_shared<asio::ssl::stream<asio::ip::tcp::socket>>(
-        ctx, asio_ssl_ctx);
+        ctx, tls_ctx.asio_context());
 
     asio::steady_timer timer{ctx};
     timer.expires_after(timeout);

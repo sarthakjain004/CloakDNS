@@ -1,5 +1,7 @@
 #pragma once
 
+#include <asio/ssl/context.hpp>
+
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
@@ -28,25 +30,28 @@ struct ContextConfig {
     std::string servername;
 };
 
-// Owns an SSL_CTX with our verify callback installed and the pin set
-// stashed in SSL_CTX ex-data. Lifetime invariant: callers must keep the
-// ContextConfig referenced by the Context alive for the Context's
-// lifetime — we hold a pointer to it, not a copy, so reload semantics
-// match the rest of the codebase (Blocklist hot reload).
+// Wraps an asio::ssl::context (which owns the underlying SSL_CTX*) with
+// our verify callback installed and the pin set stashed in SSL_CTX
+// ex-data. Lifetime invariant: callers must keep the ContextConfig
+// referenced by the Context alive for the Context's lifetime — we hold
+// a pointer to it, not a copy, so reload semantics match the rest of
+// the codebase (Blocklist hot reload).
 class Context {
 public:
     explicit Context(const ContextConfig& cfg);
-    ~Context();
     Context(const Context&) = delete;
     Context& operator=(const Context&) = delete;
     Context(Context&&) = delete;
     Context& operator=(Context&&) = delete;
 
-    SSL_CTX* native() noexcept { return ctx_; }
+    asio::ssl::context&       asio_context() noexcept       { return ctx_; }
+    const asio::ssl::context& asio_context() const noexcept { return ctx_; }
+
+    SSL_CTX*             native() noexcept       { return ctx_.native_handle(); }
     const ContextConfig& config() const noexcept { return *cfg_; }
 
 private:
-    SSL_CTX*             ctx_{nullptr};
+    asio::ssl::context   ctx_;
     const ContextConfig* cfg_;
 };
 
