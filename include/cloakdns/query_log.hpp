@@ -18,12 +18,14 @@ namespace cloak {
 // Terminal actions for a DNS query. Stable across versions — the
 // analytics dashboard (Sub-Project 6) depends on these string values.
 enum class LogAction {
-    Allow,     // forwarded upstream, no CNAME chain or chain was clean
-    Block,     // direct blocklist match on the qname
-    Uncloak,   // blocked after walking the CNAME chain
-    Cached,    // served from the in-memory cache
-    ServFail,  // upstream failure, loop, or other aborted path
-    Refuse,    // unsupported qtype or malformed question
+    Allow,       // forwarded upstream, no CNAME chain or chain was clean
+    Block,       // direct blocklist match on the qname
+    Uncloak,     // blocked after walking the CNAME chain
+    Cached,      // served from the in-memory cache
+    ServFail,    // upstream failure, loop, or other aborted path
+    Refuse,      // unsupported qtype or malformed question
+    Suspicious,  // forwarded, but CNAME chain crossed eTLD+1 boundary —
+                 // soft signal for the review queue. Schema v2.
 };
 
 std::string_view to_string(LogAction a) noexcept;
@@ -54,7 +56,10 @@ public:
         bool                  redact_client{false};   // hash client addr
     };
 
-    explicit QueryLogger(Config cfg = {});
+    // Two overloads instead of `Config cfg = {}` — see uncloaker.hpp
+    // for the same Clang 18 / nested-Config rationale.
+    QueryLogger();
+    explicit QueryLogger(Config cfg);
     ~QueryLogger();
 
     QueryLogger(const QueryLogger&) = delete;
@@ -89,8 +94,10 @@ private:
 };
 
 // Schema version emitted as `"v":N` at the head of every JSON line.
-// Bump on any schema change that adds/removes/reshapes a top-level field.
-inline constexpr int kQueryLogSchemaVersion = 1;
+// Bump on any schema change that adds/removes/reshapes a top-level field
+// — or extends the LogAction value set, which the dashboard switches on.
+// v2: added LogAction::Suspicious for eTLD+1 cross signals (M13).
+inline constexpr int kQueryLogSchemaVersion = 2;
 
 // Stable, deterministic obfuscated identifier for [logging] redact_client.
 // Implementation: FNV-1a 64-bit, top 32 bits → 8 hex chars, "hash:" prefix.

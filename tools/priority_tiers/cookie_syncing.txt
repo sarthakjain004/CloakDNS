@@ -67,3 +67,40 @@
 # Media.net — RTB exchange + analytics, observed live on nytimes.com
 # (cs.media.net, hbx.media.net, warp.media.net all subdomains)
 0.0.0.0 media.net
+
+# Additions from real-Chrome capture v2.
+
+# AdGear (Samba TV) — RTB / ad-targeting exchange. a.ad.gt + seg.ad.gt
+# observed; .gt is the AdGear-owned TLD shorthand for "ad gateway".
+0.0.0.0 ad.gt
+
+# GumGum — computer-vision contextual ad targeting. g2.gumgum.com observed.
+0.0.0.0 gumgum.com
+
+# Trackonomics (Skimlinks acquired) — affiliate-link tracking;
+# cdn-magiclinks.trackonomics.net observed on nytimes affiliate links.
+0.0.0.0 trackonomics.net
+
+# BTloader — programmatic ad loader, surfaced on multiple publisher pages.
+0.0.0.0 btloader.com
+
+# Google Ad Traffic Quality (anti-fraud beacons) — ep1/ep2.adtrafficquality.google.
+# Dual-use: legitimate ad-fraud detection AND data collection on every
+# ad impression. Standard practice in privacy lists is to block.
+0.0.0.0 adtrafficquality.google
+
+# Google Tag Manager — orchestrates third-party scripts including
+# analytics, ad pixels, conversion APIs. www.googletagmanager.com
+# observed on every commercial site. Blocking it breaks the entire
+# tag-injection chain on most publishers.
+0.0.0.0 googletagmanager.com
+
+# Google Analytics 4 host — analytics.google.com is the GA4 user-facing
+# host (the `/analytics/web/` app + measurement endpoint). Cosibling of
+# google-analytics.com (older domain) which is already in tier1.
+0.0.0.0 analytics.google.com
+
+# AddToAny — social-share widget. Cross-site cookie tracking via
+# share-button referrer leakage; functionally similar to addthis.com
+# (Tier 3) which research links to 95% of canvas fingerprinting.
+0.0.0.0 addtoany.com

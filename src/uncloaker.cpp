@@ -3,6 +3,7 @@
 #include "cloakdns/dns_message.hpp"
 #include "cloakdns/dns_parser.hpp"
 #include "cloakdns/dns_writer.hpp"
+#include "cloakdns/etld.hpp"
 
 #include <unordered_set>
 #include <utility>
@@ -56,6 +57,10 @@ WalkOutput walk_answers(const DnsMessage& msg,
 } // namespace
 
 CnameUncloaker::CnameUncloaker(UpstreamForwarder& forwarder,
+                               const Blocklist& blocklist)
+    : CnameUncloaker(forwarder, blocklist, Config{}) {}
+
+CnameUncloaker::CnameUncloaker(UpstreamForwarder& forwarder,
                                const Blocklist& blocklist,
                                Config cfg)
     : forwarder_(forwarder), blocklist_(blocklist), cfg_(cfg) {}
@@ -66,6 +71,10 @@ CnameUncloaker::uncloak(std::string_view original_qname,
     UncloakResult result;
     result.chain.emplace_back(original_qname);
     std::unordered_set<std::string> seen{result.chain.front()};
+
+    // Original eTLD+1 — used to flag cross-registrable-domain hops.
+    // Empty when original_qname is empty / a degenerate single label.
+    const std::string original_etldp1 = etld_plus_one(original_qname);
 
     // First iteration walks `first_response` without copying. Re-query
     // responses are owned by `owned_packet` and aliased by `current`.
@@ -104,6 +113,18 @@ CnameUncloaker::uncloak(std::string_view original_qname,
                 co_return result;
             }
             result.chain.push_back(hop);
+
+            // Soft eTLD+1 cross signal — does NOT change status. Captured
+            // on the FIRST crossing hop only; subsequent hops don't
+            // overwrite. Skipped silently when original eTLD+1 was empty
+            // (degenerate input — nothing meaningful to compare against).
+            if (!result.crossed_etldp1 && !original_etldp1.empty()) {
+                std::string hop_etldp1 = etld_plus_one(hop);
+                if (!hop_etldp1.empty() && hop_etldp1 != original_etldp1) {
+                    result.crossed_etldp1 = true;
+                    result.crossed_to = std::move(hop_etldp1);
+                }
+            }
 
             auto m = blocklist_.match(hop);
             if (m.blocked) {

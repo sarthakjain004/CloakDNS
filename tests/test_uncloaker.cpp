@@ -242,7 +242,7 @@ struct UncloakFixture {
         co_spawn(ctx, [&]() -> awaitable<void> {
             out = co_await uc->uncloak(qname, first);
             fake.stop();   // release io_context so ctx.run() can return
-        }(), detached);
+        }, detached);
         ctx.run();
         ctx.restart();
         return std::move(*out);
@@ -446,4 +446,68 @@ TEST(CnameUncloaker, AaaaBlockedThroughCnameChain) {
     EXPECT_EQ(r.hit.rule, "tracker.example");
     ASSERT_EQ(r.chain.size(), 2u);
     EXPECT_EQ(r.chain[1], "v6.tracker.example");
+}
+
+// --- Suspicious-cross signal (M13, Safari-style soft action) ---
+
+TEST(CnameUncloaker, Etldp1CrossSetWhenChainCrossesRegistrableDomain) {
+    // metrics.bigsite.com → tracker.evil.com — clean by name, but
+    // chain crosses eTLD+1 (bigsite.com → evil.com). The uncloaker
+    // should report Clean status AND crossed_etldp1 = true.
+    UncloakFixture fx;
+    auto response = build_response(0x9999, "metrics.bigsite.com", {
+        {"metrics.bigsite.com", kTypeCNAME, std::string{"collect.tracker.evil.com"}},
+        {"collect.tracker.evil.com", kTypeA, ip(198, 51, 100, 42)},
+    });
+    auto r = fx.run("metrics.bigsite.com", response);
+    EXPECT_EQ(r.status, cloak::UncloakStatus::Clean);
+    EXPECT_TRUE(r.crossed_etldp1);
+    EXPECT_EQ(r.crossed_to, "evil.com");
+}
+
+TEST(CnameUncloaker, Etldp1CrossNotSetForSameRegistrableDomain) {
+    // a.bigsite.com → b.deeper.bigsite.com — both eTLD+1 = bigsite.com.
+    // No cross, no signal.
+    UncloakFixture fx;
+    auto response = build_response(0xa1a1, "a.bigsite.com", {
+        {"a.bigsite.com", kTypeCNAME, std::string{"b.deeper.bigsite.com"}},
+        {"b.deeper.bigsite.com", kTypeA, ip(198, 51, 100, 1)},
+    });
+    auto r = fx.run("a.bigsite.com", response);
+    EXPECT_EQ(r.status, cloak::UncloakStatus::Clean);
+    EXPECT_FALSE(r.crossed_etldp1);
+    EXPECT_EQ(r.crossed_to, "");
+}
+
+TEST(CnameUncloaker, Etldp1CrossRecordsFirstCrossNotLast) {
+    // Two crossings — bigsite.com → cdn.example → tracker.example.
+    // The signal latches on the FIRST crossing (cdn.example), not
+    // overwritten by subsequent crossings.
+    UncloakFixture fx;
+    auto response = build_response(0xb2b2, "metrics.bigsite.com", {
+        {"metrics.bigsite.com", kTypeCNAME, std::string{"edge.cdn.example"}},
+        {"edge.cdn.example", kTypeCNAME, std::string{"pop.tracker.example"}},
+        {"pop.tracker.example", kTypeA, ip(203, 0, 113, 5)},
+    });
+    auto r = fx.run("metrics.bigsite.com", response);
+    EXPECT_EQ(r.status, cloak::UncloakStatus::Clean);
+    EXPECT_TRUE(r.crossed_etldp1);
+    EXPECT_EQ(r.crossed_to, "cdn.example");
+}
+
+TEST(CnameUncloaker, Etldp1CrossSetEvenWhenBlocked) {
+    // The cross signal is INDEPENDENT of status. A chain that crosses
+    // AND is blocked records both — useful for analytics joining
+    // "did the blocklist hit AND was it CNAME-cloaked across eTLD+1?".
+    UncloakFixture fx;
+    fx.bl.add_suffix("liveintent.com");
+    auto response = build_response(0xc3c3, "idx.liadm.com", {
+        {"idx.liadm.com", kTypeCNAME, std::string{"idx.cph.liveintent.com"}},
+        {"idx.cph.liveintent.com", kTypeA, ip(54, 240, 12, 34)},
+    });
+    auto r = fx.run("idx.liadm.com", response);
+    EXPECT_EQ(r.status, cloak::UncloakStatus::Blocked);
+    EXPECT_EQ(r.hit.rule, "liveintent.com");
+    EXPECT_TRUE(r.crossed_etldp1);
+    EXPECT_EQ(r.crossed_to, "liveintent.com");
 }

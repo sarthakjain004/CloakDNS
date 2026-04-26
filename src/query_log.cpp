@@ -18,12 +18,13 @@ namespace cloak {
 
 std::string_view to_string(LogAction a) noexcept {
     switch (a) {
-    case LogAction::Allow:    return "allow";
-    case LogAction::Block:    return "block";
-    case LogAction::Uncloak:  return "uncloak";
-    case LogAction::Cached:   return "cached";
-    case LogAction::ServFail: return "servfail";
-    case LogAction::Refuse:   return "refuse";
+    case LogAction::Allow:      return "allow";
+    case LogAction::Block:      return "block";
+    case LogAction::Uncloak:    return "uncloak";
+    case LogAction::Cached:     return "cached";
+    case LogAction::ServFail:   return "servfail";
+    case LogAction::Refuse:     return "refuse";
+    case LogAction::Suspicious: return "suspicious";
     }
     return "unknown";
 }
@@ -165,6 +166,8 @@ std::string to_json_line(const QueryLog& r) {
 }
 
 // ---------- QueryLogger ----------
+
+QueryLogger::QueryLogger() : QueryLogger(Config{}) {}
 
 QueryLogger::QueryLogger(Config cfg) : cfg_(std::move(cfg)) {
     if (cfg_.path.empty()) return;   // disabled
