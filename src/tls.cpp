@@ -2,7 +2,6 @@
 
 #include <openssl/err.h>
 #include <openssl/evp.h>
-#include <openssl/sha.h>
 
 #include <algorithm>
 #include <atomic>
@@ -98,11 +97,18 @@ std::string compute_spki_pin(X509* cert) {
     if (len <= 0 || !der)
         throw std::runtime_error{"tls: i2d_X509_PUBKEY failed"};
 
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256(der, static_cast<std::size_t>(len), hash);
+    // EVP_Digest is the 3.0-clean SHA-256 API; the legacy SHA256() helper
+    // is deprecated under -DOPENSSL_NO_DEPRECATED_3_0.
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int  hash_len = 0;
+    if (EVP_Digest(der, static_cast<std::size_t>(len),
+                   hash, &hash_len, EVP_sha256(), nullptr) != 1) {
+        OPENSSL_free(der);
+        throw std::runtime_error{"tls: EVP_Digest(sha256) failed"};
+    }
     OPENSSL_free(der);
 
-    return std::string{"sha256/"} + base64_encode(hash, SHA256_DIGEST_LENGTH);
+    return std::string{"sha256/"} + base64_encode(hash, hash_len);
 }
 
 Context::Context(const ContextConfig& cfg)
