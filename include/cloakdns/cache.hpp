@@ -6,10 +6,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <list>
+#include <mutex>
 #include <optional>
 #include <shared_mutex>
 #include <span>
