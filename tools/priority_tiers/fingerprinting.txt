@@ -94,3 +94,43 @@
 0.0.0.0 fullstory.com
 0.0.0.0 hotjar.com
 0.0.0.0 hotjar.io
+
+# RUM / APM additions from real-Chrome capture v2 (chrome-capture.jsonl,
+# 504 queries, browsing nytimes/youtube/leetcode/codeforces/grammarly).
+# Datadog regional ingest endpoints — not subdomains of the apex we
+# already block; the {region} variant `browser-intake-{us3,us5,eu1}-
+# datadoghq.com` is a separate apex per region. Listed individually so
+# we don't accidentally block app.datadoghq.com (the legitimate product UI).
+0.0.0.0 browser-intake-us5-datadoghq.com
+0.0.0.0 http-intake.logs.us5.datadoghq.com
+
+# Cloudflare Insights / Web Analytics — RUM-style page+interaction
+# telemetry. CDN-served beacon at static.cloudflareinsights.com.
+0.0.0.0 cloudflareinsights.com
+
+# PostHog — open-source product analytics with hosted ingest at *.i.posthog.com
+# (eu.i.posthog.com, eu-assets.i.posthog.com observed). The app domain
+# (app.posthog.com) is left alone for self-hosted dashboards.
+0.0.0.0 i.posthog.com
+
+# Volcengine APM / RUM (ByteDance) — apm.volccdn.com, apmplus.volces.com,
+# gator.volces.com, lf3-data.volccdn.com all observed in v2 capture.
+# APM = application performance monitoring; collects per-session timing
+# + behavioral telemetry comparable to Datadog/New Relic.
+0.0.0.0 volces.com
+0.0.0.0 volccdn.com
+
+# Fandom / Wikia — beacon.wikia-services.com is the Fandom analytics
+# beacon. Apex blocks beacon + future subdomains; leaves the content
+# domain (fandom.com) alone for actual page browsing.
+0.0.0.0 wikia-services.com
+
+# Grammarly telemetry (separate from the product's main grammarly.com).
+# inkwell.femetrics.grammarly.io, gnar.grammarly.com,
+# f-log-win-extension.grammarly.io observed. The .io domain is purely
+# metrics; do NOT block grammarly.com (would break the product).
+0.0.0.0 grammarly.io
+
+# IP.fi — IP geolocation API often used by ad networks for geo-targeted
+# personalization. p.ip.fi observed; the `p.` subdomain is a beacon.
+0.0.0.0 ip.fi

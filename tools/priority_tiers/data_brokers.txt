@@ -54,3 +54,11 @@
 
 # Merkle / dentsu — deterministic identity
 0.0.0.0 merklesearch.com
+
+# ZoomInfo — B2B contact data broker (sales-intelligence platform built
+# on scraped + purchased professional records). ws.zoominfo.com observed
+# in real-Chrome capture v2 — beacons fire from publisher pages even on
+# non-B2B contexts. Apex blocks the data flow without breaking anything
+# (the user-facing app is on app.zoominfo.com, but blocking that is
+# also fine — privacy-conscious users have no business there anyway).
+0.0.0.0 zoominfo.com
