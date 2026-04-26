@@ -70,6 +70,7 @@ add_library(cloak_dns_core STATIC
     src/blocklist.cpp
     src/upstream.cpp
     src/upstream_dot.cpp
+    src/upstream_doh.cpp
     src/uncloaker.cpp
     src/cache.cpp
     src/edns_padding.cpp
@@ -78,7 +79,8 @@ add_library(cloak_dns_core STATIC
     src/paths.cpp
     src/privilege.cpp
     src/etld.cpp
-    src/tls.cpp)
+    src/tls.cpp
+    src/http_client.cpp)
 target_include_directories(cloak_dns_core PUBLIC include)
 target_compile_features(cloak_dns_core PUBLIC cxx_std_20)
 target_link_libraries(cloak_dns_core PUBLIC

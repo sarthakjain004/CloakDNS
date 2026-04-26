@@ -423,6 +423,7 @@ int main(int argc, char** argv) {
         upstream_cfg.protocol           = fwd_proto;
         upstream_cfg.servername         = cfg.upstream.servername;
         upstream_cfg.spki_pins          = cfg.upstream.spki_pins;
+        upstream_cfg.doh_path           = cfg.upstream.doh_path;
         upstream_cfg.timeout            = cfg.upstream.timeout;
         upstream_cfg.retries_on_primary = cfg.upstream.retries_on_primary;
         upstream_cfg.padding_block_size = cfg.upstream.padding_block_size;

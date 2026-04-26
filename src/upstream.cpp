@@ -16,13 +16,23 @@
 
 namespace cloak {
 
-// Forward decl of the DoT single-shot exchange — implemented in upstream_dot.cpp.
+// Forward decls of the protocol-specific single-shot exchanges —
+// implemented in upstream_dot.cpp / upstream_doh.cpp.
 namespace detail {
 asio::awaitable<std::optional<std::vector<std::byte>>>
 dot_try_once(asio::io_context& ctx,
              tls::Context& tls_ctx,
              const asio::ip::tcp::endpoint& server,
              const std::string& servername,
+             std::span<const std::byte> outbound,
+             std::chrono::milliseconds timeout);
+
+asio::awaitable<std::optional<std::vector<std::byte>>>
+doh_try_once(asio::io_context& ctx,
+             tls::Context& tls_ctx,
+             const asio::ip::tcp::endpoint& server,
+             const std::string& host_header,
+             const std::string& path,
              std::span<const std::byte> outbound,
              std::chrono::milliseconds timeout);
 }
@@ -85,7 +95,15 @@ UpstreamForwarder::UpstreamForwarder(asio::io_context& ctx, Config cfg)
         tls_ctx_ = std::make_unique<tls::Context>(*tls_cfg_);
         break;
       case Protocol::Doh:
-        throw std::invalid_argument{"UpstreamForwarder: DoH not yet implemented (M19b)"};
+        if (cfg_.tcp_servers.empty())
+            throw std::invalid_argument{"UpstreamForwarder: no TCP servers for DoH"};
+        if (cfg_.servername.empty())
+            throw std::invalid_argument{"UpstreamForwarder: DoH requires servername (Host header)"};
+        tls_cfg_ = std::make_unique<tls::ContextConfig>();
+        tls_cfg_->spki_pins  = cfg_.spki_pins;
+        tls_cfg_->servername = cfg_.servername;
+        tls_ctx_ = std::make_unique<tls::Context>(*tls_cfg_);
+        break;
     }
 }
 
@@ -200,6 +218,31 @@ UpstreamForwarder::forward_with_source(std::span<const std::byte> client_query) 
             }
         }
         throw std::runtime_error{"upstream: all DoT servers exhausted"};
+    }
+
+    if (cfg_.protocol == Protocol::Doh) {
+        bool is_primary = true;
+        for (std::size_t i = 0; i < cfg_.tcp_servers.size(); ++i) {
+            const auto& server = cfg_.tcp_servers[i];
+            const int attempts = is_primary ? (1 + cfg_.retries_on_primary) : 1;
+            is_primary = false;
+            for (int a = 0; a < attempts; ++a) {
+                auto resp = co_await detail::doh_try_once(
+                    ctx_, *tls_ctx_, server, cfg_.servername, cfg_.doh_path,
+                    outbound, cfg_.timeout);
+                if (!resp) continue;
+                if (resp->size() < 12) continue;
+                const uint16_t resp_id = read_u16_be(*resp, 0);
+                if (resp_id != our_id) continue;
+                if (!reply_matches_request(client_query, *resp)) continue;
+                write_u16_be(std::span<std::byte>{*resp}, 0, client_id);
+                co_return ForwardResult{
+                    .response = std::move(*resp),
+                    .upstream = ep_to_string(server),
+                };
+            }
+        }
+        throw std::runtime_error{"upstream: all DoH servers exhausted"};
     }
 
     throw std::runtime_error{"upstream: protocol not implemented"};

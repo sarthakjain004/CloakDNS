@@ -102,6 +102,11 @@ UpstreamConfig parse_upstream(const toml::table& t) {
             out.spki_pins.push_back(*s);
         }
     }
+    if (auto v = t["doh_path"].value<std::string>(); v) {
+        if (v->empty() || v->front() != '/')
+            fail("upstream.doh_path: '" + *v + "' must start with '/'");
+        out.doh_path = *v;
+    }
     if ((out.protocol == UpstreamProtocol::Dot || out.protocol == UpstreamProtocol::Doh)
         && out.servername.empty()) {
         // Allow empty when the user is pointing at a hostname that itself

@@ -53,6 +53,10 @@ public:
         // replacement.
         std::vector<std::string> spki_pins;
 
+        // DoH request path. Standard is "/dns-query"; some operators
+        // expose alternate paths. Ignored unless protocol == Doh.
+        std::string doh_path{"/dns-query"};
+
         std::chrono::milliseconds timeout{2000};
         int                       retries_on_primary{1};
         std::size_t               padding_block_size{128};   // 0 disables
