@@ -83,8 +83,6 @@ url    = "https://raw.githubusercontent.com/AdguardTeam/cname-trackers/master/da
 format = "plain"
 optional = true
 
-[[source]]
-name   = "anudeep_cname"
-url    = "https://raw.githubusercontent.com/anudeepND/blacklist/master/cname.txt"
-format = "plain"
-optional = true
+# anudeepND/blacklist removed 2026-04 — upstream returned 404 (cname.txt
+# no longer in the repo). The AdguardTeam/cname-trackers feed above
+# covers the same use case with active maintenance.
