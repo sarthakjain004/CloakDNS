@@ -5,12 +5,15 @@ front of your machine's resolver, drops queries to known tracker, ad, and
 fingerprinting domains before any TCP connection is opened, and follows CNAME
 chains so trackers cloaked as first-party subdomains don't slip past.
 
-CloakDNS targets gaps that browser extensions can't close: server-to-server
-conversion APIs, CNAME-cloaked tracking that browsers see as first-party, and
-non-browser apps (smart TVs, IoT, native apps) that your ad-blocker extension
-never sees. The feature set is grounded in published web-tracking research
-rather than a hand-written tracker list — every blocking layer maps to a paper
-in `papers/`. See [`CLAUDE.md`](CLAUDE.md) for the full feature matrix and
+CloakDNS targets gaps that browser extensions can't close: CNAME-cloaked
+tracking that browsers see as first-party, the client-side pixel leg of
+server-side conversion APIs (Meta CAPI, TikTok Events, sGTM — pure
+backend-to-backend traffic is outside any local DNS's reach, but most
+deployments fire a browser pixel in parallel that we do block), and
+non-browser apps (smart TVs, IoT, native apps) that an extension never sees.
+The feature set is grounded in published web-tracking research rather than a
+hand-written tracker list — every blocking layer maps to a paper in
+`papers/`. See [`CLAUDE.md`](CLAUDE.md) for the full feature matrix and
 research justifications.
 
 > **Status:** in active development. The core resolver (M0–M12) is
@@ -226,18 +229,19 @@ resolver pointing at CloakDNS.
 
 ## Roadmap
 
-Milestones complete on `main`: M0 (UDP echo) → M12 (AAAA dispatch + Windows
-UDP `WSAECONNRESET` fix). Open work, with PRs in flight or planned:
+Milestones complete on `main`: M0 (UDP echo) → M20 (ECH). The encrypted
+upstream stack — DoT, DoH, and opt-in ECH — landed across PRs #4, #5, #6.
+Remaining work:
 
-| ID  | Feature                                                | State          |
-|-----|--------------------------------------------------------|----------------|
-| M13 | Safari-ITP-style eTLD+1 cross detection (CNAME)        | PR open        |
-| M14 | Federated blocklist refresh wrappers + CI canary       | PR open        |
-| M15 | macOS CI job + launchd LaunchDaemon                    | PR open        |
-| M19 | Multi-protocol upstream (DoT/DoH)                      | planned        |
-| —   | DoH/DoT bypass detection (port 443/853 monitoring)     | planned        |
-| —   | DNS-over-Tor optional upstream                         | analyzed, deferred (see `learnings/dns-over-tor-tradeoff.md`) |
-| —   | GPC-aware logging                                      | planned        |
+| ID    | Feature                                                | State |
+|-------|--------------------------------------------------------|-------|
+| M20.1 | Auto-fetch ECHConfigList from HTTPS DNS RR (qtype 65)  | planned |
+| —     | DoH/DoT bypass detection (port 443/853 monitoring)     | planned |
+| —     | DNS-over-Tor optional upstream                         | analyzed, deferred (see `learnings/dns-over-tor-tradeoff.md`) |
+| —     | GPC-aware logging                                      | planned |
+| —     | Tracker-type tagging (Roesner Type A–E)                | planned |
+| —     | India-adtech priority tier (mined from E2E sweep)      | planned |
+| —     | License selection (currently unspecified)              | planned |
 
 Limitations DNS blocking cannot fix (first-party tracking, server-to-server
 joins, behavioral biometrics, shared-CDN trackers) are documented in
