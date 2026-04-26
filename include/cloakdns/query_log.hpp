@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -74,7 +75,7 @@ public:
     size_t rotated_count() const noexcept;
 
 private:
-    void writer_loop(std::stop_token st);
+    void writer_loop();
     void write_one(const std::string& line);
     void maybe_rotate();   // mu_ held by caller
 
@@ -88,7 +89,12 @@ private:
 
     size_t dropped_{0};
     size_t rotations_{0};
-    std::jthread writer_;   // must outlive queue/stream; declared last so destroyed first
+    // Was std::jthread; replaced with std::thread + atomic stop flag
+    // because Apple libc++ (Xcode 16-) gates jthread/stop_token behind
+    // availability annotations even on macOS 14+. mu_/cv_ above carry
+    // the wakeup signal; stopping_ is the cooperative shutdown flag.
+    std::atomic<bool> stopping_{false};
+    std::thread       writer_;   // must outlive queue/stream; declared last so destroyed first
 };
 
 // Schema version emitted as `"v":N` at the head of every JSON line.

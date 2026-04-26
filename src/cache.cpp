@@ -166,13 +166,16 @@ asio::awaitable<void> apply_jitter(std::chrono::milliseconds max_jitter) {
 DnsCache::DnsCache() : DnsCache(Config{}) {}
 
 DnsCache::DnsCache(Config cfg) : cfg_(cfg) {
-    sweeper_ = std::jthread{[this](std::stop_token st) { sweeper_loop(st); }};
+    sweeper_ = std::thread{[this] { sweeper_loop(); }};
 }
 
 DnsCache::~DnsCache() {
-    // sweeper_ stops automatically on destruction via std::jthread's
-    // stop_token. sweeper_loop sleeps on a condition_variable and
-    // checks the stop_token so the jthread exits promptly.
+    {
+        std::scoped_lock lk{shutdown_mu_};
+        stopping_.store(true);
+    }
+    shutdown_cv_.notify_all();
+    if (sweeper_.joinable()) sweeper_.join();
 }
 
 void DnsCache::insert(CacheKey key, std::vector<std::byte> response,
@@ -287,15 +290,18 @@ DnsCache::Stats DnsCache::stats() const noexcept {
     };
 }
 
-void DnsCache::sweeper_loop(std::stop_token st) {
-    std::mutex local;
-    std::condition_variable_any cv;
-    std::unique_lock lk{local};
-    while (!st.stop_requested()) {
-        cv.wait_for(lk, st, cfg_.sweep_interval,
-                    [&] { return st.stop_requested(); });
-        if (st.stop_requested()) break;
+void DnsCache::sweeper_loop() {
+    std::unique_lock lk{shutdown_mu_};
+    while (!stopping_.load()) {
+        shutdown_cv_.wait_for(lk, cfg_.sweep_interval,
+                              [this] { return stopping_.load(); });
+        if (stopping_.load()) break;
+        // Release shutdown_mu_ while sweep_expired takes mu_ in unique
+        // mode — different mutex, but releasing keeps shutdown signaling
+        // responsive during long sweeps.
+        lk.unlock();
         sweep_expired();
+        lk.lock();
     }
 }
 
