@@ -2,6 +2,7 @@
 
 #include "cloakdns/dns_parser.hpp"
 #include "cloakdns/edns_padding.hpp"
+#include "cloakdns/tls.hpp"
 
 #include <asio/buffer.hpp>
 #include <asio/steady_timer.hpp>
@@ -9,10 +10,23 @@
 
 #include <array>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <system_error>
 
 namespace cloak {
+
+// Forward decl of the DoT single-shot exchange — implemented in upstream_dot.cpp.
+namespace detail {
+asio::awaitable<std::optional<std::vector<std::byte>>>
+dot_try_once(asio::io_context& ctx,
+             tls::Context& tls_ctx,
+             const asio::ip::tcp::endpoint& server,
+             const std::string& servername,
+             std::span<const std::byte> outbound,
+             std::chrono::milliseconds timeout);
+}
+
 namespace {
 
 constexpr size_t kMaxResponse = 4096;
@@ -28,19 +42,60 @@ void write_u16_be(std::span<std::byte> b, size_t off, uint16_t v) {
     b[off + 1] = std::byte{static_cast<uint8_t>(v & 0xff)};
 }
 
+template <typename Endpoint>
+std::string ep_to_string(const Endpoint& ep) {
+    std::ostringstream ss;
+    ss << ep;
+    return ss.str();
+}
+
+bool reply_matches_request(std::span<const std::byte> client_query,
+                           std::span<const std::byte> reply) {
+    try {
+        const auto req = parse(client_query);
+        const auto rep = parse(reply);
+        if (req.questions.size() != rep.questions.size()) return false;
+        for (std::size_t i = 0; i < req.questions.size(); ++i) {
+            const auto& q = req.questions[i];
+            const auto& r = rep.questions[i];
+            if (q.qname != r.qname || q.qtype != r.qtype || q.qclass != r.qclass)
+                return false;
+        }
+        return true;
+    } catch (const ParseError&) {
+        return false;
+    }
+}
+
 } // namespace
 
 UpstreamForwarder::UpstreamForwarder(asio::io_context& ctx, Config cfg)
     : ctx_(ctx), cfg_(std::move(cfg)), rng_(std::random_device{}()) {
-    if (cfg_.servers.empty())
-        throw std::invalid_argument{"UpstreamForwarder: no servers"};
+    switch (cfg_.protocol) {
+      case Config::Protocol::Udp:
+        if (cfg_.servers.empty())
+            throw std::invalid_argument{"UpstreamForwarder: no UDP servers"};
+        break;
+      case Config::Protocol::Dot:
+        if (cfg_.tcp_servers.empty())
+            throw std::invalid_argument{"UpstreamForwarder: no TCP servers for DoT"};
+        tls_cfg_ = std::make_unique<tls::ContextConfig>();
+        tls_cfg_->spki_pins  = cfg_.spki_pins;
+        tls_cfg_->servername = cfg_.servername;
+        tls_ctx_ = std::make_unique<tls::Context>(*tls_cfg_);
+        break;
+      case Config::Protocol::Doh:
+        throw std::invalid_argument{"UpstreamForwarder: DoH not yet implemented (M19b)"};
+    }
 }
 
+UpstreamForwarder::~UpstreamForwarder() = default;
+
 asio::awaitable<std::optional<std::vector<std::byte>>>
-UpstreamForwarder::try_once(std::span<const std::byte> outbound,
-                            const asio::ip::udp::endpoint& server,
-                            uint16_t our_id,
-                            std::span<const std::byte> client_query) {
+UpstreamForwarder::try_once_udp(std::span<const std::byte> outbound,
+                                const asio::ip::udp::endpoint& server,
+                                std::uint16_t our_id,
+                                std::span<const std::byte> client_query) {
     auto s = std::make_shared<asio::ip::udp::socket>(ctx_);
     s->open(asio::ip::udp::v4());
     s->bind(asio::ip::udp::endpoint{asio::ip::udp::v4(), 0});
@@ -76,21 +131,8 @@ UpstreamForwarder::try_once(std::span<const std::byte> outbound,
         // We have ID, source-IP, and ephemeral-port matching already; this
         // closes one more poisoning vector at near-zero cost.
         const std::span<const std::byte> reply{buf.data(), n};
-        try {
-            const auto req_msg = parse(client_query);
-            const auto rep_msg = parse(reply);
-            if (req_msg.questions.size() != rep_msg.questions.size())
-                co_return std::nullopt;
-            for (size_t i = 0; i < req_msg.questions.size(); ++i) {
-                const auto& q = req_msg.questions[i];
-                const auto& r = rep_msg.questions[i];
-                if (q.qname  != r.qname)  co_return std::nullopt;
-                if (q.qtype  != r.qtype)  co_return std::nullopt;
-                if (q.qclass != r.qclass) co_return std::nullopt;
-            }
-        } catch (const ParseError&) {
+        if (!reply_matches_request(client_query, reply))
             co_return std::nullopt;
-        }
 
         co_return std::vector<std::byte>(buf.data(), buf.data() + n);
     } catch (const std::system_error&) {
@@ -116,22 +158,51 @@ UpstreamForwarder::forward_with_source(std::span<const std::byte> client_query) 
     }
     write_u16_be(std::span<std::byte>{outbound}, 0, our_id);
 
-    bool is_primary = true;
-    for (const auto& server : cfg_.servers) {
-        const int attempts = is_primary ? (1 + cfg_.retries_on_primary) : 1;
-        is_primary = false;
-        for (int a = 0; a < attempts; ++a) {
-            auto resp = co_await try_once(outbound, server, our_id, client_query);
-            if (resp) {
+    if (cfg_.protocol == Config::Protocol::Udp) {
+        bool is_primary = true;
+        for (std::size_t i = 0; i < cfg_.servers.size(); ++i) {
+            const auto& server = cfg_.servers[i];
+            const int attempts = is_primary ? (1 + cfg_.retries_on_primary) : 1;
+            is_primary = false;
+            for (int a = 0; a < attempts; ++a) {
+                auto resp = co_await try_once_udp(outbound, server, our_id, client_query);
+                if (resp) {
+                    write_u16_be(std::span<std::byte>{*resp}, 0, client_id);
+                    co_return ForwardResult{
+                        .response = std::move(*resp),
+                        .upstream = ep_to_string(server),
+                    };
+                }
+            }
+        }
+        throw std::runtime_error{"upstream: all servers exhausted"};
+    }
+
+    if (cfg_.protocol == Config::Protocol::Dot) {
+        bool is_primary = true;
+        for (std::size_t i = 0; i < cfg_.tcp_servers.size(); ++i) {
+            const auto& server = cfg_.tcp_servers[i];
+            const int attempts = is_primary ? (1 + cfg_.retries_on_primary) : 1;
+            is_primary = false;
+            for (int a = 0; a < attempts; ++a) {
+                auto resp = co_await detail::dot_try_once(
+                    ctx_, *tls_ctx_, server, cfg_.servername, outbound, cfg_.timeout);
+                if (!resp) continue;
+                if (resp->size() < 12) continue;
+                const uint16_t resp_id = read_u16_be(*resp, 0);
+                if (resp_id != our_id) continue;
+                if (!reply_matches_request(client_query, *resp)) continue;
                 write_u16_be(std::span<std::byte>{*resp}, 0, client_id);
                 co_return ForwardResult{
-                    .response    = std::move(*resp),
-                    .answered_by = server,
+                    .response = std::move(*resp),
+                    .upstream = ep_to_string(server),
                 };
             }
         }
+        throw std::runtime_error{"upstream: all DoT servers exhausted"};
     }
-    throw std::runtime_error{"upstream: all servers exhausted"};
+
+    throw std::runtime_error{"upstream: protocol not implemented"};
 }
 
 asio::awaitable<std::vector<std::byte>>

@@ -48,6 +48,12 @@ FetchContent_Declare(tomlplusplus
     GIT_SHALLOW    TRUE)
 FetchContent_MakeAvailable(tomlplusplus)
 
+# OpenSSL — required for DoT (M19a). DoH (M19b) and ECH (M20) reuse it.
+# 3.0+ for DoT/DoH; M20 will bump to 4.0 when ECH lands. On Windows CI the
+# image ships OpenSSL 3.x via Chocolatey/the runner image; on macOS we
+# rely on Homebrew's openssl@3 (set OPENSSL_ROOT_DIR or `brew --prefix`).
+find_package(OpenSSL 3.0 REQUIRED)
+
 add_library(asio_headers INTERFACE)
 target_include_directories(asio_headers INTERFACE
     ${asio_SOURCE_DIR}/asio/include)
@@ -63,6 +69,7 @@ add_library(cloak_dns_core STATIC
     src/dns_writer.cpp
     src/blocklist.cpp
     src/upstream.cpp
+    src/upstream_dot.cpp
     src/uncloaker.cpp
     src/cache.cpp
     src/edns_padding.cpp
@@ -70,10 +77,15 @@ add_library(cloak_dns_core STATIC
     src/query_log.cpp
     src/paths.cpp
     src/privilege.cpp
-    src/etld.cpp)
+    src/etld.cpp
+    src/tls.cpp)
 target_include_directories(cloak_dns_core PUBLIC include)
 target_compile_features(cloak_dns_core PUBLIC cxx_std_20)
-target_link_libraries(cloak_dns_core PUBLIC asio_headers tomlplusplus::tomlplusplus)
+target_link_libraries(cloak_dns_core PUBLIC
+    asio_headers
+    tomlplusplus::tomlplusplus
+    OpenSSL::SSL
+    OpenSSL::Crypto)
 
 if(WIN32)
     target_link_libraries(cloak_dns_core PUBLIC ws2_32 mswsock)
