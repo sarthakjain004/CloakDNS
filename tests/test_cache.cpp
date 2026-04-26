@@ -336,7 +336,7 @@ TEST(ApplyJitter, ZeroMaxIsNoop) {
     asio::co_spawn(ctx, [&]() -> asio::awaitable<void> {
         co_await cloak::apply_jitter(0ms);
         done = true;
-    }(), asio::detached);
+    }, asio::detached);
     ctx.run();
     EXPECT_TRUE(done);
 }
@@ -346,7 +346,7 @@ TEST(ApplyJitter, NonZeroMaxSleepsWithinBound) {
     auto t0 = std::chrono::steady_clock::now();
     asio::co_spawn(ctx, [&]() -> asio::awaitable<void> {
         co_await cloak::apply_jitter(20ms);
-    }(), asio::detached);
+    }, asio::detached);
     ctx.run();
     auto elapsed = std::chrono::steady_clock::now() - t0;
     // Sanity bound: ~5x the max jitter accommodates Windows timer
@@ -363,7 +363,7 @@ TEST(ApplyJitter, ActuallySleepsSomeOfTheTime) {
         auto t0 = std::chrono::steady_clock::now();
         asio::co_spawn(ctx, [&]() -> asio::awaitable<void> {
             co_await cloak::apply_jitter(20ms);
-        }(), asio::detached);
+        }, asio::detached);
         ctx.run();
         ctx.restart();
         if (std::chrono::steady_clock::now() - t0 >= 1ms) {

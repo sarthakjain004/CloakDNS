@@ -242,7 +242,7 @@ struct UncloakFixture {
         co_spawn(ctx, [&]() -> awaitable<void> {
             out = co_await uc->uncloak(qname, first);
             fake.stop();   // release io_context so ctx.run() can return
-        }(), detached);
+        }, detached);
         ctx.run();
         ctx.restart();
         return std::move(*out);

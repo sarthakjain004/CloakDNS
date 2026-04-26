@@ -103,7 +103,7 @@ TEST(Upstream, SuccessPathSwapsIdBack) {
     co_spawn(ctx, [&]() -> awaitable<void> {
         try { result = co_await fwd.forward(query); }
         catch (const std::exception& e) { error = e.what(); }
-    }(), detached);
+    }, detached);
     ctx.run();
 
     ASSERT_TRUE(result.has_value()) << (error ? *error : std::string{"?"});
@@ -134,7 +134,7 @@ TEST(Upstream, TimeoutThrowsAfterRetries) {
     co_spawn(ctx, [&]() -> awaitable<void> {
         try { (void)co_await fwd.forward(query); }
         catch (const std::exception& e) { error = e.what(); }
-    }(), detached);
+    }, detached);
     const auto t0 = std::chrono::steady_clock::now();
     ctx.run();
     const auto elapsed = std::chrono::steady_clock::now() - t0;
@@ -167,7 +167,7 @@ TEST(Upstream, FailoverToSecondary) {
     co_spawn(ctx, [&]() -> awaitable<void> {
         try { result = co_await fwd.forward(query); }
         catch (const std::exception& e) { error = e.what(); }
-    }(), detached);
+    }, detached);
     ctx.run();
 
     ASSERT_TRUE(result.has_value()) << (error ? *error : std::string{"?"});
@@ -196,7 +196,7 @@ TEST(Upstream, RejectsWrongIdResponse) {
     co_spawn(ctx, [&]() -> awaitable<void> {
         try { (void)co_await fwd.forward(query); }
         catch (const std::exception& e) { error = e.what(); }
-    }(), detached);
+    }, detached);
     ctx.run();
 
     ASSERT_TRUE(error.has_value());
@@ -231,7 +231,7 @@ TEST(Upstream, OutboundQueryIsPaddedToBlockSize) {
 
     co_spawn(ctx, [&]() -> awaitable<void> {
         (void)co_await fwd.forward(query);
-    }(), detached);
+    }, detached);
     ctx.run();
 
     EXPECT_EQ(received_len.load(), 128u);
@@ -256,7 +256,7 @@ TEST(Upstream, PaddingDisabledForwardsOriginalLength) {
     auto query = make_query(0xabcd);
     co_spawn(ctx, [&]() -> awaitable<void> {
         (void)co_await fwd.forward(query);
-    }(), detached);
+    }, detached);
     ctx.run();
 
     EXPECT_EQ(received_len.load(), query.size());
