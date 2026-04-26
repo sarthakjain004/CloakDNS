@@ -64,6 +64,35 @@ jobs:
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
         run: ctest --test-dir build-tsan --output-on-failure
 
+  macos-asan-ubsan:
+    # Apple Clang + libc++ on macos-latest. Sanity-checks that the
+    # codebase actually builds on a non-Linux POSIX target. ASan+UBSan
+    # only — TSan on macOS is occasionally flaky in CI and the Linux
+    # TSan job already covers our concurrency surface (cache, hot-reload
+    # atomics, async logger queue).
+    name: macOS / Apple Clang / ASan+UBSan
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ninja
+        run: brew install ninja
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCLOAKDNS_SANITIZE=asan+ubsan
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build --output-on-failure
+
   windows-msvc:
     name: Windows / MSVC
     runs-on: windows-latest

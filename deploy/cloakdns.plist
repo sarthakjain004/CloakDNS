@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  cloakdns.plist — launchd LaunchDaemon definition for macOS.
+
+  Counterpart to deploy/cloakdns.service (systemd) for Linux. Use this
+  to run cloakdns automatically at boot on macOS, listening on UDP/53.
+
+  Why this is a LaunchDaemon, not a LaunchAgent:
+    - Daemons are system-wide and run as root.
+    - Agents are per-user and start at user login.
+    - Binding to UDP/53 needs root on macOS — there's no equivalent to
+      Linux's CAP_NET_BIND_SERVICE — so a LaunchAgent cannot do it.
+    - cloakdns starts as root, binds, then drops privileges in-process
+      via service.run_as_user from cloakdns.toml. Same flow as systemd.
+
+  Install (one time, as admin):
+    sudo cp deploy/cloakdns.plist /Library/LaunchDaemons/com.cloakdns.daemon.plist
+    sudo chown root:wheel /Library/LaunchDaemons/com.cloakdns.daemon.plist
+    sudo chmod 644 /Library/LaunchDaemons/com.cloakdns.daemon.plist
+    sudo launchctl load -w /Library/LaunchDaemons/com.cloakdns.daemon.plist
+
+  Validate the file before installing:
+    plutil -lint deploy/cloakdns.plist
+
+  Stop and disable:
+    sudo launchctl unload -w /Library/LaunchDaemons/com.cloakdns.daemon.plist
+
+  Reload after editing the plist:
+    sudo launchctl unload -w /Library/LaunchDaemons/com.cloakdns.daemon.plist
+    sudo launchctl load   -w /Library/LaunchDaemons/com.cloakdns.daemon.plist
+
+  Hot-reload the blocklist without restarting cloakdns:
+    sudo pkill -HUP cloakdns
+
+  Make cloakdns the system resolver for the active interface (Wi-Fi):
+    sudo networksetup -setdnsservers Wi-Fi 127.0.0.1
+  Restore (back to DHCP-supplied DNS):
+    sudo networksetup -setdnsservers Wi-Fi empty
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.cloakdns.daemon</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/cloakdns</string>
+    <string>/usr/local/etc/cloakdns/cloakdns.toml</string>
+  </array>
+
+  <!-- Start at boot. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Restart on abnormal exit. SuccessfulExit=false means: if the
+       process exits with status 0, do NOT relaunch; only relaunch on
+       crashes or non-zero exits. Prevents tight loops on intentional
+       exit. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <!-- Wait at least this many seconds between relaunch attempts. -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <!-- Working directory matters: cloakdns.toml's [blocklist] sources
+       resolve relative paths against the daemon's pwd. -->
+  <key>WorkingDirectory</key>
+  <string>/usr/local/share/cloakdns</string>
+
+  <key>StandardOutPath</key>
+  <string>/var/log/cloakdns.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/var/log/cloakdns.err.log</string>
+
+  <!-- Don't specify UserName / GroupName here. cloakdns starts as root
+       to bind UDP/53, then calls cloak::drop_privileges() with the
+       service.run_as_user / service.run_as_group values from
+       cloakdns.toml. Set those in the TOML, not here. -->
+</dict>
+</plist>
