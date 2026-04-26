@@ -69,7 +69,8 @@ add_library(cloak_dns_core STATIC
     src/config.cpp
     src/query_log.cpp
     src/paths.cpp
-    src/privilege.cpp)
+    src/privilege.cpp
+    src/etld.cpp)
 target_include_directories(cloak_dns_core PUBLIC include)
 target_compile_features(cloak_dns_core PUBLIC cxx_std_20)
 target_link_libraries(cloak_dns_core PUBLIC asio_headers tomlplusplus::tomlplusplus)

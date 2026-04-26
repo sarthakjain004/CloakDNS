@@ -100,8 +100,9 @@ TEST(JsonLine, UnknownQtypeFallsBackToInteger) {
 TEST(JsonLine, IncludesSchemaVersion) {
     auto line = to_json_line(sample_record());
     // Schema version is the very first field — analytics consumers read
-    // a fixed prefix to detect old logs.
-    EXPECT_TRUE(line.starts_with("{\"v\":1,"))
+    // a fixed prefix to detect old logs. Bumped to 2 in M13 when
+    // LogAction::Suspicious was added.
+    EXPECT_TRUE(line.starts_with("{\"v\":2,"))
         << "expected schema-version prefix, got: " << line.substr(0, 16);
 }
 

@@ -24,6 +24,14 @@ struct UncloakResult {
     std::vector<std::string> chain;   // [original_qname, hop1, hop2, ...]
     MatchResult hit{};                // populated iff status == Blocked
     std::string abort_reason;         // populated iff status == Aborted
+
+    // Suspicious-cross signal: set when the chain hops to a different
+    // eTLD+1 than the original qname's. Recorded regardless of `status`
+    // — Safari ITP-style soft signal that the caller may surface in the
+    // query log without changing the resolved response. See
+    // learnings/safari-cname-defense-and-our-adaptation.md §6.
+    bool        crossed_etldp1{false};
+    std::string crossed_to;           // eTLD+1 of the first hop that crossed
 };
 
 class CnameUncloaker {

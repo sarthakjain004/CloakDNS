@@ -18,12 +18,13 @@ namespace cloak {
 
 std::string_view to_string(LogAction a) noexcept {
     switch (a) {
-    case LogAction::Allow:    return "allow";
-    case LogAction::Block:    return "block";
-    case LogAction::Uncloak:  return "uncloak";
-    case LogAction::Cached:   return "cached";
-    case LogAction::ServFail: return "servfail";
-    case LogAction::Refuse:   return "refuse";
+    case LogAction::Allow:      return "allow";
+    case LogAction::Block:      return "block";
+    case LogAction::Uncloak:    return "uncloak";
+    case LogAction::Cached:     return "cached";
+    case LogAction::ServFail:   return "servfail";
+    case LogAction::Refuse:     return "refuse";
+    case LogAction::Suspicious: return "suspicious";
     }
     return "unknown";
 }

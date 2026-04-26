@@ -230,11 +230,28 @@ awaitable<void> handle(std::vector<std::byte> query_buf,
                 case cloak::UncloakStatus::Clean:
                     try_cache_insert();
                     response = std::move(upstream_resp);
-                    std::cout << "forward " << qname;
-                    if (result.chain.size() > 1) log_chain(std::cout, result.chain);
-                    std::cout << std::endl;
-                    log_record(cloak::LogAction::Allow, qname, qtype,
-                               "", result.chain, upstream_str);
+                    if (result.crossed_etldp1) {
+                        // Soft signal: the chain crossed registrable
+                        // domains without hitting the blocklist. We
+                        // still forward the upstream answer — the
+                        // record goes to the suspicious queue for
+                        // offline review (Safari ITP-style soft action;
+                        // see learnings/safari-cname-defense-and-our-adaptation.md).
+                        std::cout << "suspect " << qname
+                                  << "  -> " << result.crossed_to;
+                        log_chain(std::cout, result.chain);
+                        std::cout << std::endl;
+                        log_record(cloak::LogAction::Suspicious, qname, qtype,
+                                   "etldp1-cross:" + result.crossed_to,
+                                   result.chain, upstream_str);
+                    } else {
+                        std::cout << "forward " << qname;
+                        if (result.chain.size() > 1)
+                            log_chain(std::cout, result.chain);
+                        std::cout << std::endl;
+                        log_record(cloak::LogAction::Allow, qname, qtype,
+                                   "", result.chain, upstream_str);
+                    }
                     break;
                 }
             } else {
