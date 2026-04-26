@@ -72,11 +72,11 @@ bool reply_matches_request(std::span<const std::byte> client_query,
 UpstreamForwarder::UpstreamForwarder(asio::io_context& ctx, Config cfg)
     : ctx_(ctx), cfg_(std::move(cfg)), rng_(std::random_device{}()) {
     switch (cfg_.protocol) {
-      case Config::Protocol::Udp:
+      case Protocol::Udp:
         if (cfg_.servers.empty())
             throw std::invalid_argument{"UpstreamForwarder: no UDP servers"};
         break;
-      case Config::Protocol::Dot:
+      case Protocol::Dot:
         if (cfg_.tcp_servers.empty())
             throw std::invalid_argument{"UpstreamForwarder: no TCP servers for DoT"};
         tls_cfg_ = std::make_unique<tls::ContextConfig>();
@@ -84,7 +84,7 @@ UpstreamForwarder::UpstreamForwarder(asio::io_context& ctx, Config cfg)
         tls_cfg_->servername = cfg_.servername;
         tls_ctx_ = std::make_unique<tls::Context>(*tls_cfg_);
         break;
-      case Config::Protocol::Doh:
+      case Protocol::Doh:
         throw std::invalid_argument{"UpstreamForwarder: DoH not yet implemented (M19b)"};
     }
 }
@@ -158,7 +158,7 @@ UpstreamForwarder::forward_with_source(std::span<const std::byte> client_query) 
     }
     write_u16_be(std::span<std::byte>{outbound}, 0, our_id);
 
-    if (cfg_.protocol == Config::Protocol::Udp) {
+    if (cfg_.protocol == Protocol::Udp) {
         bool is_primary = true;
         for (std::size_t i = 0; i < cfg_.servers.size(); ++i) {
             const auto& server = cfg_.servers[i];
@@ -178,7 +178,7 @@ UpstreamForwarder::forward_with_source(std::span<const std::byte> client_query) 
         throw std::runtime_error{"upstream: all servers exhausted"};
     }
 
-    if (cfg_.protocol == Config::Protocol::Dot) {
+    if (cfg_.protocol == Protocol::Dot) {
         bool is_primary = true;
         for (std::size_t i = 0; i < cfg_.tcp_servers.size(); ++i) {
             const auto& server = cfg_.tcp_servers[i];
