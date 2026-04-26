@@ -26,6 +26,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <shared_mutex>
 #include <span>
 #include <sstream>
 #include <string>
@@ -277,11 +278,28 @@ awaitable<void> handle(std::vector<std::byte> query_buf,
     }
 }
 
-// Atomic shared-pointer holder used for hot reload. main() builds
-// each Blocklist, atomically stores it here, and serve() reads a
-// snapshot per query.
+// Hot-reload-friendly shared-pointer holder. main() builds each
+// Blocklist, stores it here, and serve() reads a snapshot per query.
+//
+// Was std::atomic<std::shared_ptr<...>> (C++20) but Apple libc++ in
+// Xcode 16 still ships without that specialization (libstdc++ has it,
+// MSVC has it). Replaced with shared_ptr + shared_mutex which is
+// portable to all three platforms. The hot path (load) acquires a
+// shared lock — cheap atomic CAS in glibc/libc++/MSVC — and copies
+// the shared_ptr; reload acquires a unique lock to swap.
 using BlocklistPtr = std::shared_ptr<const cloak::Blocklist>;
-std::atomic<BlocklistPtr> g_blocklist;
+BlocklistPtr g_blocklist;
+std::shared_mutex g_blocklist_mu;
+
+BlocklistPtr blocklist_load() {
+    std::shared_lock lk{g_blocklist_mu};
+    return g_blocklist;
+}
+
+void blocklist_store(BlocklistPtr p) {
+    std::unique_lock lk{g_blocklist_mu};
+    g_blocklist = std::move(p);
+}
 
 awaitable<void> serve(udp::socket& sock,
                       cloak::UpstreamForwarder& fwd,
@@ -309,7 +327,7 @@ awaitable<void> serve(udp::socket& sock,
             continue;
         }
         std::vector<std::byte> copy(buf.data(), buf.data() + n);
-        auto snapshot = g_blocklist.load();
+        auto snapshot = blocklist_load();
         co_spawn(executor,
                  handle(std::move(copy), from, sock, std::move(snapshot),
                         fwd, uncloaker, cache, logger),
@@ -376,7 +394,7 @@ int main(int argc, char** argv) {
     try {
         const auto cfg = load_or_default(argc, argv);
 
-        g_blocklist.store(std::make_shared<cloak::Blocklist>(build_blocklist(cfg)));
+        blocklist_store(std::make_shared<cloak::Blocklist>(build_blocklist(cfg)));
 
         asio::io_context ctx;
 
@@ -394,7 +412,7 @@ int main(int argc, char** argv) {
         // the uncloaker's lifetime. Without this pin, the first SIGHUP
         // would drop the original Blocklist's refcount to zero and the
         // uncloaker would dangle (use-after-free).
-        const auto uncloak_blocklist_pin = g_blocklist.load();
+        const auto uncloak_blocklist_pin = blocklist_load();
         cloak::CnameUncloaker uncloaker{forwarder, *uncloak_blocklist_pin,
             cloak::CnameUncloaker::Config{.max_depth = cfg.uncloak.max_depth}};
 
@@ -486,7 +504,7 @@ int main(int argc, char** argv) {
             try {
                 std::cout << "\nreload (" << kReloadName << "): rebuilding blocklist" << std::endl;
                 auto fresh = std::make_shared<cloak::Blocklist>(build_blocklist(cfg));
-                g_blocklist.store(std::move(fresh));
+                blocklist_store(std::move(fresh));
             } catch (const std::exception& e) {
                 std::cerr << "reload failed (" << e.what()
                           << ") — keeping previous blocklist" << std::endl;

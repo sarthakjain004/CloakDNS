@@ -6,10 +6,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <list>
+#include <mutex>
 #include <optional>
 #include <shared_mutex>
 #include <span>
@@ -91,7 +93,7 @@ private:
         std::list<CacheKey>::iterator lru_it{};  // points into lru_; spliced on hit
     };
 
-    void sweeper_loop(std::stop_token st);
+    void sweeper_loop();
     void evict_one_locked();   // mu_ held in unique mode
 
     Config cfg_;
@@ -105,7 +107,14 @@ private:
     std::atomic<size_t> lru_evictions_{0};
     std::atomic<size_t> expired_sweeps_{0};
 
-    std::jthread sweeper_;  // declared last so it's stopped before other members are destroyed
+    // Sweeper shutdown coordination. Was std::jthread + std::stop_token,
+    // but Apple libc++ (Xcode 16-) gates those behind availability
+    // annotations even on macOS 14+. Replaced with a portable
+    // atomic-flag + cv pattern.
+    std::atomic<bool>       stopping_{false};
+    std::mutex              shutdown_mu_;
+    std::condition_variable shutdown_cv_;
+    std::thread             sweeper_;  // declared last so destruct doesn't race shutdown_*
 };
 
 // Build a CacheKey from a parsed query's first question. Returns

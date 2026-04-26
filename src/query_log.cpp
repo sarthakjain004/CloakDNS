@@ -187,14 +187,17 @@ QueryLogger::QueryLogger(Config cfg) : cfg_(std::move(cfg)) {
     if (!ec) bytes_written_ = static_cast<size_t>(sz);
 
     if (cfg_.async) {
-        writer_ = std::jthread{[this](std::stop_token st) { writer_loop(st); }};
+        writer_ = std::thread{[this] { writer_loop(); }};
     }
 }
 
 QueryLogger::~QueryLogger() {
-    // Stop the writer (std::jthread::~jthread calls request_stop() then join()).
+    // Cooperative shutdown — set the flag, wake the writer, join.
     if (writer_.joinable()) {
-        writer_.request_stop();
+        {
+            std::scoped_lock lk{mu_};
+            stopping_.store(true);
+        }
         cv_.notify_all();
         writer_.join();
     }
@@ -291,11 +294,11 @@ void QueryLogger::maybe_rotate() {
     ++rotations_;
 }
 
-void QueryLogger::writer_loop(std::stop_token st) {
+void QueryLogger::writer_loop() {
     std::unique_lock lk{mu_};
-    while (!st.stop_requested() || !queue_.empty()) {
-        cv_.wait(lk, [&] {
-            return st.stop_requested() || !queue_.empty();
+    while (!stopping_.load() || !queue_.empty()) {
+        cv_.wait(lk, [this] {
+            return stopping_.load() || !queue_.empty();
         });
         // Drain the queue while holding the lock. write_one mutates
         // stream_, bytes_written_, and rotations_, all of which are

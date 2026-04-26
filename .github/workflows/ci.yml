@@ -64,6 +64,44 @@ jobs:
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
         run: ctest --test-dir build-tsan --output-on-failure
 
+  macos-asan-ubsan:
+    # Apple Clang + libc++ on macos-latest. Sanity-checks that the
+    # codebase actually builds on a non-Linux POSIX target. ASan+UBSan
+    # only — TSan on macOS is occasionally flaky in CI and the Linux
+    # TSan job already covers our concurrency surface (cache, hot-reload
+    # atomics, async logger queue).
+    name: macOS / Apple Clang / ASan+UBSan
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ninja
+        run: brew install ninja
+
+      # Apple libc++ gates std::jthread / std::stop_token behind
+      # _LIBCPP_AVAILABILITY_SYNC (macOS 13.4+). Pin the deployment
+      # target explicitly so the symbols are visible.
+      - name: Configure
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '14.0'
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCLOAKDNS_SANITIZE=asan+ubsan
+
+      - name: Build
+        run: cmake --build build -j
+
+      # Apple Clang's ASan doesn't ship LeakSanitizer (LSan is
+      # Linux-only); detect_leaks=1 fatals at startup. Drop it for the
+      # macOS job; the Linux ASan job already covers leak detection.
+      - name: Test
+        env:
+          ASAN_OPTIONS: abort_on_error=1:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build --output-on-failure
+
   windows-msvc:
     name: Windows / MSVC
     runs-on: windows-latest
