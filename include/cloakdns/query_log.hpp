@@ -54,7 +54,10 @@ public:
         bool                  redact_client{false};   // hash client addr
     };
 
-    explicit QueryLogger(Config cfg = {});
+    // Two overloads instead of `Config cfg = {}` — see uncloaker.hpp
+    // for the same Clang 18 / nested-Config rationale.
+    QueryLogger();
+    explicit QueryLogger(Config cfg);
     ~QueryLogger();
 
     QueryLogger(const QueryLogger&) = delete;

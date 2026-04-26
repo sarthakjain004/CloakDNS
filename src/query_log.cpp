@@ -166,6 +166,8 @@ std::string to_json_line(const QueryLog& r) {
 
 // ---------- QueryLogger ----------
 
+QueryLogger::QueryLogger() : QueryLogger(Config{}) {}
+
 QueryLogger::QueryLogger(Config cfg) : cfg_(std::move(cfg)) {
     if (cfg_.path.empty()) return;   // disabled
     stream_.open(cfg_.path, std::ios::app);
