@@ -17,7 +17,11 @@ Usage (from project root):
 import collections, json, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-VISITS = ROOT / "results" / "E2E" / "india-top100" / "visits.jsonl"
+# Mine across every visits.jsonl whose dataset name starts with
+# "india-" — covers the original india-top100 sweep plus any
+# bot-bypassed extension runs (india-top100-extra).
+VISITS_PATHS = sorted(
+    p for p in (ROOT / "results" / "E2E").glob("india-*/visits.jsonl"))
 
 # Show only candidates that appeared on at least this many distinct
 # Indian sites — enough to suggest cross-site adtech presence rather
@@ -73,24 +77,26 @@ def shape_skip(host: str) -> bool:
         if h == s or h.endswith("." + s): return True
     return False
 
-# Walk the corpus.
+# Walk every india-* visits.jsonl in results/E2E/.
 host_sites: dict[str, set[str]] = collections.defaultdict(set)
-for line in VISITS.read_text(errors="ignore").splitlines():
-    line = line.strip()
-    if not line: continue
-    try: rec = json.loads(line)
-    except: continue
-    site = rec.get("site")
-    if not site: continue
-    site_etld = site.lower()
-    for h in rec.get("hosts", []):
-        h = (h or "").lower()
-        if not h or "." not in h: continue
-        # Skip the site's own first-party — anything that ends with the site's eTLD+1.
-        if h == site_etld or h.endswith("." + site_etld): continue
-        if already_blocked(h): continue
-        if shape_skip(h): continue
-        host_sites[h].add(site_etld)
+for vfile in VISITS_PATHS:
+    for line in vfile.read_text(errors="ignore").splitlines():
+        line = line.strip()
+        if not line: continue
+        try: rec = json.loads(line)
+        except: continue
+        site = rec.get("site")
+        if not site: continue
+        site_etld = site.lower()
+        for h in rec.get("hosts", []):
+            h = (h or "").lower()
+            if not h or "." not in h: continue
+            # Skip the site's own first-party — anything that ends with
+            # the site's eTLD+1.
+            if h == site_etld or h.endswith("." + site_etld): continue
+            if already_blocked(h): continue
+            if shape_skip(h): continue
+            host_sites[h].add(site_etld)
 
 # eTLD+1 collapsing — group candidates by their parent so the human
 # can see "this whole vendor showed up on N sites" not "12 subdomains
@@ -113,7 +119,8 @@ for host, sites in host_sites.items():
 # Rank by site-count.
 ranked = sorted(vendor_sites.items(), key=lambda kv: (-len(kv[1]), kv[0]))
 
-print(f"India top-100 corpus: {len(host_sites)} candidate hostnames "
+print(f"Datasets mined: {[p.parent.name for p in VISITS_PATHS]}")
+print(f"Candidate hostnames: {len(host_sites)} "
       f"(after dropping already-blocked + obvious CDN/first-party shapes)")
 print(f"Showing vendors that appear on >= {MIN_SITES} distinct sites:\n")
 

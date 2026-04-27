@@ -143,18 +143,154 @@
 0.0.0.0 t.adx.opera.com
 0.0.0.0 t.oa.opera.com
 
-# Notes on what we deliberately did NOT include:
+# =========================================================================
+# v2 additions — mined from results/E2E/india-top100-extra/visits.jsonl
+# (bot-bypass-equipped extended crawl on 2026-04-27 covering the 25
+# sites that failed the original sweep + 11 additional Indian sites).
+# =========================================================================
+
+# ---- More India-/Asia-headquartered adtech and engagement SaaS --------
+# InMobi parent domain (im-apps.net is the DMP; inmobi.com is the main
+# tracker stack) — observed on 8 sites in the extended crawl.
+0.0.0.0 inmobi.com
+
+# CleverTap — Mumbai/SF customer-engagement / push-notification SaaS;
+# loaded as third-party SDK on 8 sites. Same category as MoEngage.
+0.0.0.0 clevertap-prod.com
+
+# WebEngage — Mumbai customer-engagement; both the .co and .com domains
+# observed across 8 sites.
+0.0.0.0 webengage.co
+0.0.0.0 webengage.com
+
+# Eskimi — Lithuania/India-active mobile DSP; 5 sites.
+0.0.0.0 eskimi.com
+
+# iZooto — Indian push-notification / re-engagement; 5 sites.
+0.0.0.0 izooto.com
+
+# ---- Major US/EU adtech surfaced by the wider crawl -------------------
+# Flashtalking — creative-serving / dynamic ads (Mediaocean); 9 sites.
+0.0.0.0 flashtalking.com
+
+# Yellowblue / Audigent — DMP / cookie-sync; 8 sites.
+0.0.0.0 yellowblue.io
+
+# 2mdn.net — Google's DoubleClick rich-media CDN; 7 sites. tier1
+# blocks doubleclick.net, but 2mdn.net is a separate parent that
+# bypasses the tier1 rule.
+0.0.0.0 2mdn.net
+
+# DeepIntent — pharma-vertical DSP; 7 sites.
+0.0.0.0 deepintent.com
+
+# IPredictive — Audigent-acquired DSP; 7 sites.
+0.0.0.0 ipredictive.com
+
+# Rocket Fuel (rfihub) — programmatic DSP; 7 sites.
+0.0.0.0 rfihub.com
+
+# AMX adtech network — three related domains across 6 sites.
+0.0.0.0 a-mx.com
+0.0.0.0 amx1.net
+0.0.0.0 amxrtb.com
+
+# AdotMob — mobile adtech; 6 sites.
+0.0.0.0 adotmob.com
+
+# eyeota — Dun & Bradstreet audience DMP; 6 sites.
+0.0.0.0 eyeota.net
+
+# FreeWheel video-ad-server cookie sync; 6 sites.
+0.0.0.0 fwmrm.net
+
+# LiveIntent identity-resolution; 6 sites.
+0.0.0.0 liadm.com
+
+# Liftoff DSP; 6 sites.
+0.0.0.0 liftdsp.com
+
+# Mediarithmics — French adtech CDP; 6 sites.
+0.0.0.0 mediarithmics.com
+
+# Presage / Pmsage — outstream video DSP; 6 sites.
+0.0.0.0 presage.io
+
+# Primis — outstream/recommendation; 6 sites.
+0.0.0.0 primis.tech
+
+# RTB Mexico / rtb.mx — exchange; 6 sites.
+0.0.0.0 rtb.mx
+
+# Adobe Dynamic Tag Management — loads downstream tracker SDKs onto
+# any site using Adobe Launch / DTM; 5 sites.
+0.0.0.0 adobedtm.com
+
+# Cinarra (Japan / SoftBank carrier-data DSP); 5 sites.
+0.0.0.0 cinarra.com
+
+# Mediago / DSPs from China; 5 sites.
+0.0.0.0 mediago.io
+
+# Nrich AI; 5 sites.
+0.0.0.0 nrich.ai
+
+# Rich Audience programmatic; 5 sites.
+0.0.0.0 richaudience.com
+
+# DMX Leo cookie-matching; 5 sites.
+0.0.0.0 dmxleo.com
+
+# Akamai mPulse — RUM but heavily integrated with adtech telemetry; 5
+# sites. Block as adtech-adjacent.
+0.0.0.0 go-mpulse.net
+
+# ---- Japanese adtech with India-site cross-presence -------------------
+# Several Japanese SSPs/DSPs surfaced on 5+ Indian sites — likely
+# Geo-Asia traffic deals. Each on its own parent domain.
+0.0.0.0 adingo.jp
+0.0.0.0 fout.jp
+0.0.0.0 nex8.net
+0.0.0.0 uncn.jp
+
+# ---- Long-tail SSPs from the wider crawl ------------------------------
+# 4-site presence each. Same shape as the v1 long-tail block.
+0.0.0.0 aralego.com
+0.0.0.0 ccgateway.net
+0.0.0.0 colossusssp.com
+0.0.0.0 fastclick.net
+0.0.0.0 ck-ie.com
+0.0.0.0 iqzone.com
+0.0.0.0 kargo.com
+0.0.0.0 krushmedia.com
+0.0.0.0 measureadv.com
+0.0.0.0 mediagotechnology.com
+0.0.0.0 mfadsrvr.com
+0.0.0.0 pmbmonetize.live
+0.0.0.0 postrelease.com
+0.0.0.0 shb-sync.com
+0.0.0.0 sportradarserving.com
+0.0.0.0 ymmobi.com
+0.0.0.0 betweendigital.com
+0.0.0.0 brand-display.com
+
+# Notes on what we deliberately did NOT include (in either v1 or v2):
 #
-# * facebook.com / yahoo.com / bing.com / google.com / google.co.in —
-#   these have adtech sub-domains, but their parents are first-party
-#   for many users. Where the parent is not blocked, only specific
-#   subdomains (above) are listed.
+# * facebook.com / yahoo.com / bing.com / google.com / google.co.in /
+#   snapchat.com / linkedin.com / quora.com / temu.com / indiatimes.com /
+#   flixcart.com — first-party for many users; only specific subdomains
+#   blocked above where they're clearly adtech.
 #
-# * sentry.io — observed on 5 sites but is legitimate error reporting.
-#   Not adtech. If a user wants to block analytics-class telemetry,
-#   that's a separate decision.
+# * sentry.io — legitimate error reporting; not adtech. ftstatic.com —
+#   Financial Times static.
 #
-# * AWS / Akamai / Cloudfront / GCP CDN domains — these are shared
-#   CDN infrastructure that hosts adtech AND legitimate content; can't
-#   be blanket-blocked at DNS level without breaking sites. CNAME
+# * cookielaw.org (OneTrust consent management) — required to render the
+#   GDPR/CCPA banner; blocking it tends to *break* the consent flow rather
+#   than improve privacy.
+#
+# * appsflyer.com — mobile attribution; ambiguous (some legitimate uses).
+#   Add it if you want stricter blocking.
+#
+# * AWS / Akamai / Cloudfront / GCP CDN domains and *.run.app — shared
+#   infrastructure that hosts adtech AND legitimate content; CNAME
 #   uncloaking handles the adtech cases at runtime.
