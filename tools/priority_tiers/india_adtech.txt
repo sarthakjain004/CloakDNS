@@ -1,0 +1,160 @@
+# CloakDNS priority tier — India-adtech vendors and the global SSPs that
+# show up densely on Indian sites.
+#
+# Mined from results/E2E/india-top100/visits.jsonl (68 successfully
+# crawled top-Indian sites; tools/e2e/india_adtech_mine.py reproduces
+# the candidate ranking). Every rule below was observed on >= 4
+# distinct Indian sites in the corpus and is NOT already covered by
+# tier1, cookie_syncing, fingerprinting, data_brokers, or any other
+# existing CloakDNS tier.
+#
+# Format: <IP> <hostname>  (one rule per line; suffix-matched)
+# Inline comments give site-count and vendor identity.
+
+# ---- India-/Asia-headquartered adtech ---------------------------------
+# Times Internet's adtech subsidiary; ubiquitous on Times Group news
+# sites (timesofindia, navbharattimes, etc.) — observed on 6 sites.
+0.0.0.0 clmbtech.com
+
+# InMobi (Bangalore) — second-largest mobile adtech in Asia. The
+# im-apps.net domain hosts InMobi's DMP and audience-sync endpoints —
+# observed on 6 sites.
+0.0.0.0 im-apps.net
+
+# Appier (Taipei, large India presence) — AI-driven adtech / DMP —
+# observed on 5 sites.
+0.0.0.0 appier.net
+
+# MoEngage (Bangalore / SF) — customer-engagement / push-notification
+# SDK; loaded as a third-party tracker on 5 sites.
+0.0.0.0 moengage.com
+
+# Mygaru — identity-resolution / DMP — observed on 6 sites under both
+# the .com and .dev domains.
+0.0.0.0 mygaru.com
+0.0.0.0 mgaru.dev
+
+# Smaato — Singapore/Berlin SSP focused on APAC mobile inventory —
+# observed on 5 sites.
+0.0.0.0 smaato.net
+
+# LoopMe (Singapore-listed, India-active) — observed on 6 sites.
+0.0.0.0 loopme.me
+
+# ---- Global SSPs / DSPs / exchanges with strong India footprint -------
+# Taboola — content-recommendation widgets; often the dominant tracker
+# on Indian news sites. 11 sites in the corpus.
+0.0.0.0 taboola.com
+
+# Outbrain — same category as Taboola (acquired Teads). 10 sites.
+0.0.0.0 outbrain.com
+
+# Teads — Outbrain-owned video adtech; 8 sites.
+0.0.0.0 teads.tv
+
+# Index Exchange (Casale Media) — header-bidding SSP; 12 sites.
+0.0.0.0 casalemedia.com
+0.0.0.0 indexww.com
+
+# Equativ / SmartAdServer — global SSP; 11 sites.
+0.0.0.0 smartadserver.com
+
+# TripleLift — outstream/native SSP; 10 sites.
+0.0.0.0 3lift.com
+
+# Tremor International / Unruly Media — video DSP; 10 sites.
+0.0.0.0 unrulymedia.com
+
+# RhythmOne (now Tremor) cookie-sync hub; 10 sites.
+0.0.0.0 1rx.io
+
+# Sharethrough — 8 sites.
+0.0.0.0 sharethrough.com
+
+# OpenX — major SSP CDN; 7 sites (openxcdn.net is the asset domain).
+0.0.0.0 openxcdn.net
+
+# Improve Digital (Magnite-acquired) — 7 sites.
+0.0.0.0 360yield.com
+
+# RTB House — retargeting DSP; 8 sites.
+0.0.0.0 creativecdn.com
+
+# ID5 — cookieless universal-ID provider; 7 sites + the EU pop too.
+0.0.0.0 id5-sync.com
+0.0.0.0 eu-1-id5-sync.com
+
+# Beeswax / FreeWheel programmatic DSP; 7 sites.
+0.0.0.0 bidr.io
+
+# Conversant (Epsilon) match domains; 6 sites.
+0.0.0.0 dotomi.com
+
+# Microsoft Clarity (session-replay) — observed on 6 sites. Not adtech
+# strictly, but tracking; included for India-news-site coverage where
+# Clarity is heavily deployed.
+0.0.0.0 clarity.ms
+
+# Linkit / Adscape SSP; 6 sites.
+0.0.0.0 ladsp.com
+
+# Supership / SoftBank Japan SSP; 6 sites in India corpus (cross-Asia
+# traffic).
+0.0.0.0 socdm.com
+
+# Simpli.fi — programmatic platform; 6 sites.
+0.0.0.0 simpli.fi
+
+# StackAdapt — programmatic ads; 6 sites.
+0.0.0.0 stackadapt.com
+
+# Tribal Fusion (Exponential Interactive); 6 sites.
+0.0.0.0 tribalfusion.com
+
+# Yieldmo — mobile-creative DSP; 6 sites.
+0.0.0.0 yieldmo.com
+
+# ---- Long-tail SSP/DSP cross-syncing endpoints -------------------------
+# Each of these appeared on 4-5 distinct Indian sites and follows the
+# classic "cookie-sync subdomain" pattern (sync.*, match.*, csync.*,
+# usermatch.*, cm.*, etc).
+0.0.0.0 a-mo.net
+0.0.0.0 adgrx.com
+0.0.0.0 adkernel.com
+0.0.0.0 admanmedia.com
+0.0.0.0 ad-m.asia
+0.0.0.0 adtdp.com
+0.0.0.0 advolve.io
+0.0.0.0 ambientdsp.com
+0.0.0.0 aniview.com
+0.0.0.0 blismedia.com
+0.0.0.0 connatix.com
+0.0.0.0 ctnsnet.com
+0.0.0.0 gammaplatform.com
+0.0.0.0 iprom.net
+0.0.0.0 mgid.com
+0.0.0.0 onetag-sys.com
+
+# ---- Specific cookie-sync subdomains on otherwise-legitimate parents --
+# Block the subdomain only — the parent has legitimate uses.
+# Microsoft Bing's adtech leg (bing.com itself stays allowed).
+0.0.0.0 bat.bing.com
+# Opera's ad-exchange subdomains (opera.com / opera browser stays allowed).
+0.0.0.0 t.adx.opera.com
+0.0.0.0 t.oa.opera.com
+
+# Notes on what we deliberately did NOT include:
+#
+# * facebook.com / yahoo.com / bing.com / google.com / google.co.in —
+#   these have adtech sub-domains, but their parents are first-party
+#   for many users. Where the parent is not blocked, only specific
+#   subdomains (above) are listed.
+#
+# * sentry.io — observed on 5 sites but is legitimate error reporting.
+#   Not adtech. If a user wants to block analytics-class telemetry,
+#   that's a separate decision.
+#
+# * AWS / Akamai / Cloudfront / GCP CDN domains — these are shared
+#   CDN infrastructure that hosts adtech AND legitimate content; can't
+#   be blanket-blocked at DNS level without breaking sites. CNAME
+#   uncloaking handles the adtech cases at runtime.
