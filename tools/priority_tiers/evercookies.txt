@@ -1,0 +1,58 @@
+# CloakDNS priority tier — evercookie / respawning identity infrastructure
+#
+# Evercookies persist user identity across sessions by writing the same
+# value into many different storage layers (cookies, LocalStorage, IndexedDB,
+# Flash LSOs, ETag, HSTS, canvas-cached state, ...). After the user clears
+# any subset, the cookie respawns from a survivor. Soltani et al. and
+# Kamkar's original demo showed the attack; Acar et al. (CCS 2014) and
+# Englehardt & Narayanan (CCS 2016) documented the production deployments.
+# Modern device-fingerprinting / identity-resolution vendors play the same
+# functional role at scale today (you fingerprint the device, you can
+# rebuild the cookie from the back end).
+#
+# Format: <IP> <hostname>  (one rule per line; suffix-matched by CloakDNS)
+#
+# Research provenance per group is in the inline comments below.
+
+# ---- Englehardt & Narayanan, OpenWPM 1M Census (CCS 2016) ---------------
+# These specific hostnames were observed respawning user IDs across
+# storage layers in real top-1M crawls. bbcdn-bbnaut respawned 69
+# distinct cookies across 24 sites in that study.
+0.0.0.0 bbcdn-bbnaut.ibillboard.com
+0.0.0.0 ibillboard.com
+0.0.0.0 kiks.yandex.ru
+0.0.0.0 irs01.net
+0.0.0.0 simg.sinajs.cn
+
+# ---- Device-fingerprinting / identity-resolution as evercookie ----------
+# Vendor named in CloakDNS CLAUDE.md (sourced from Acar 2014, Englehardt
+# 2016 fingerprinting catalogues, and post-2020 fraud-prevention research).
+# These services hand client-side libraries a stable device identifier on
+# every page load — functionally an evercookie, just held server-side.
+0.0.0.0 iovation.com
+0.0.0.0 mpsnare.iesnare.com
+0.0.0.0 threatmetrix.com
+0.0.0.0 online-metrix.net
+
+# ---- Modern fraud / "trust" stacks that respawn identity ---------------
+# Same functional role: fingerprint, persist, re-link across sessions.
+# Confirmed against 2024-2025 ad-blocker filter lists (EasyPrivacy,
+# Disconnect, NextDNS-research) and the SoK: Web Tracking 2025 survey.
+0.0.0.0 sift.com
+0.0.0.0 siftscience.com
+0.0.0.0 cdn.sift.com
+0.0.0.0 perimeterx.net
+0.0.0.0 px-cdn.net
+0.0.0.0 px-cloud.net
+0.0.0.0 px-client.net
+0.0.0.0 distilnetworks.com
+0.0.0.0 emailage.com
+0.0.0.0 fraudmetrix.cn
+0.0.0.0 static.fraudmetrix.cn
+
+# ---- Cross-device / panel-style identity respawning --------------------
+# Nielsen's imrworldwide and similar panel-tracking endpoints rebuild
+# user identity across the tracker's panel network even after local clears.
+0.0.0.0 imrworldwide.com
+0.0.0.0 c.imrworldwide.com
+0.0.0.0 secure-us.imrworldwide.com
