@@ -51,7 +51,7 @@ CertPtr make_self_signed_cert(EVP_PKEY* pkey) {
     X509_gmtime_adj(X509_getm_notBefore(cert.get()), 0);
     X509_gmtime_adj(X509_getm_notAfter(cert.get()), 60 * 60);
     X509_set_pubkey(cert.get(), pkey);
-    X509_NAME* name = X509_get_subject_name(cert.get());
+    X509_NAME* name = const_cast<X509_NAME*>(X509_get_subject_name(cert.get()));
     X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
         reinterpret_cast<const unsigned char*>("test.cloak"), -1, -1, 0);
     X509_set_issuer_name(cert.get(), name);

@@ -16,10 +16,11 @@ hand-written tracker list — every blocking layer maps to a paper in
 `papers/`. See [`CLAUDE.md`](CLAUDE.md) for the full feature matrix and
 research justifications.
 
-> **Status:** in active development. The core resolver (M0–M12) is
-> implemented, tested, and runs as a Linux daemon / Windows service. Some
-> roadmap items (multi-protocol upstream, DoH/DoT bypass detection) are not
-> yet shipped — see [Roadmap](#roadmap).
+> **Status:** in active development. The resolver core (M0–M12) plus the
+> encrypted upstream stack — DoT, DoH, and opt-in ECH (M19a, M19b, M20) —
+> is implemented, tested, and runs as a Linux daemon / Windows service.
+> Some roadmap items (DoH/DoT bypass detection, GPC-aware logging, admin
+> UI) are not yet shipped — see [Roadmap](#roadmap).
 
 ## Features
 
@@ -44,6 +45,25 @@ Implemented on `main`:
   DNS-timing fingerprinting vector (PETS 2022).
 - **EDNS0 padding** — pads outgoing queries to a configurable block size
   (RFC 8467) to reduce DoH/DoT traffic-analysis surface.
+- **Encrypted upstream — single binary, no sidecar** — native DoT
+  (RFC 7858) and DoH (RFC 8484) over OpenSSL with SPKI cert pinning
+  (RFC 7469). EDNS0 padding is applied before encryption. Pi-hole and
+  Blocky still require a `cloudflared` / `stubby` / Unbound sidecar for
+  the same job (and Pi-hole's documented cloudflared path is being
+  deprecated after Feb 2026).
+- **Opt-in Encrypted Client Hello on the outbound link (RFC 9849)** —
+  encrypts the upstream TLS ClientHello so an on-path observer can't see
+  which upstream we're speaking to. CMake-gated against OpenSSL 4.0+.
+  Live-verified on 2026-04-27 against the `defo.ie` ECH testbed: the
+  outgoing ClientHello carries TLS extension `0xfe0d`, the cleartext
+  SNI shows the configured outer name (`cover.defo.ie`), and the inner
+  hostname (`defo.ie`) never appears in cleartext on the wire. A
+  reproduction harness lives at `tools/e2e/verify_ech.py` (manual run —
+  not yet wired into CI because the runners don't provision OpenSSL
+  4.0 or privileged `tshark`). AdGuard Home's tracking issue for this
+  ([#2558](https://github.com/AdguardTeam/AdGuardHome/issues/2558)) is
+  still open; among the major self-hosted DNS sinkholes, CloakDNS
+  appears to be the first to ship this.
 - **AAAA / SVCB / HTTPS dispatch** — Chrome's H3 hint queries (qtype 65) are
   forwarded; abuse vectors (ANY, AXFR, IXFR) are dropped.
 - **Hot-reload** — `SIGHUP` (POSIX) / `SIGBREAK` (Windows) re-reads the
@@ -53,6 +73,37 @@ Implemented on `main`:
   upstream latency. Optional client-IP redaction via FNV-1a hash.
 - **Service deployment** — systemd unit (`deploy/cloakdns.service`) and
   Windows Service installer (`deploy/install-windows.ps1`).
+
+## How CloakDNS compares
+
+A 2026-04-27 sweep of the eight closest products (Pi-hole, AdGuard Home,
+NextDNS, Blocky, AdGuard public DNS, Brave Shields, uBlock Origin, Safari
+ITP) is in `learnings/competitive-positioning.md`. Headline differentiators
+that hold up against that field:
+
+- **Single-binary encrypted upstream.** Pi-hole v6 (April 2026) still
+  requires a `cloudflared` / Unbound / stubby sidecar for DoH/DoT;
+  CloakDNS does both natively in one binary, like AdGuard Home and
+  Blocky.
+- **ECH on the outbound link.** Among self-hosted DNS sinkholes, no
+  competitor we found ships ECH on the resolver's outbound TLS today.
+  NextDNS's ECH is server-side (clients → NextDNS) and does not help
+  self-hosted setups.
+- **CNAME uncloaking matters more than it used to.** uBlock Origin's
+  CNAME uncloaking is Firefox-only; Chrome's Manifest V3 transition
+  (completed late 2024) removed the API gorhill needs. For the Chrome
+  majority a CNAME-aware system DNS is the only remaining defence.
+- **Research-grounded blocklist with paper-level provenance.** Every
+  priority tier in `tools/priority_tiers/` maps to a paper in `papers/`.
+  Per-rule provenance in logs is on the roadmap and would be unique
+  among the eight.
+- **Cache TTL jitter as a DNS-timing-fingerprinting defence.** Cited
+  from FP-Radar (PETS 2022); none of the competitors expose this.
+
+Areas where competitors are still ahead and CloakDNS should close the
+gap: web admin UI (Pi-hole, AGH), per-client policies (AGH), Prometheus
+metrics (Blocky), mobile encrypted-DNS profile generation (AGH,
+NextDNS).
 
 ## Architecture
 
@@ -178,8 +229,16 @@ path  = "cloakdns-queries.jsonl"
 async = true
 ```
 
-Send `SIGHUP` (Linux/macOS) or `SIGBREAK` (Windows, via `taskkill /F /BREAK`)
-to reload blocklist and config without restarting.
+Reload the blocklist and config without restarting:
+
+- **Linux / macOS:** `kill -HUP <pid>`.
+- **Windows:** `CTRL_BREAK_EVENT` to a daemon launched with
+  `CREATE_NEW_PROCESS_GROUP`. The Win32 `GenerateConsoleCtrlEvent` API
+  only delivers events to processes in the same console group, so a
+  plain `taskkill` won't reach the daemon. The verifier at
+  `tools/e2e/reload_test.py` is the canonical reference — it launches
+  cloakdns with the right `creationflags` and calls
+  `p.send_signal(signal.CTRL_BREAK_EVENT)`.
 
 ## Deployment
 

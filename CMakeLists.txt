@@ -63,7 +63,13 @@ endif()
 add_library(asio_headers INTERFACE)
 target_include_directories(asio_headers INTERFACE
     ${asio_SOURCE_DIR}/asio/include)
-target_compile_definitions(asio_headers INTERFACE ASIO_STANDALONE)
+target_compile_definitions(asio_headers INTERFACE
+    ASIO_STANDALONE
+    # rfc2818_verification.ipp uses non-const X509 accessors that
+    # OpenSSL 4.0 made const. We don't use Asio's hostname verifier
+    # (we have our own SPKI-pinning verify_callback in tls.cpp), so
+    # gate the deprecated path out.
+    ASIO_NO_DEPRECATED)
 
 if(WIN32)
     target_compile_definitions(asio_headers INTERFACE
