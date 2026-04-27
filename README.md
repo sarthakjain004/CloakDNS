@@ -300,7 +300,6 @@ Remaining work:
 | —     | GPC-aware logging                                      | planned |
 | —     | Tracker-type tagging (Roesner Type A–E)                | planned |
 | —     | India-adtech priority tier (mined from E2E sweep)      | planned |
-| —     | License selection (currently unspecified)              | planned |
 
 Limitations DNS blocking cannot fix (first-party tracking, server-to-server
 joins, behavioral biometrics, shared-CDN trackers) are documented in
@@ -325,6 +324,6 @@ features they justify is in [`CLAUDE.md`](CLAUDE.md#research-justifications).
 
 ## License
 
-Not yet specified. The third-party dependencies CloakDNS fetches at build
-time (Asio, tomlplusplus, GoogleTest) ship under their own permissive
-licenses.
+MIT — see [LICENSE](LICENSE). The third-party dependencies CloakDNS
+fetches at build time (Asio, tomlplusplus, GoogleTest) ship under their
+own permissive licenses, all compatible with MIT.
