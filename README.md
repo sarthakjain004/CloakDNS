@@ -229,8 +229,16 @@ path  = "cloakdns-queries.jsonl"
 async = true
 ```
 
-Send `SIGHUP` (Linux/macOS) or `SIGBREAK` (Windows, via `taskkill /F /BREAK`)
-to reload blocklist and config without restarting.
+Reload the blocklist and config without restarting:
+
+- **Linux / macOS:** `kill -HUP <pid>`.
+- **Windows:** `CTRL_BREAK_EVENT` to a daemon launched with
+  `CREATE_NEW_PROCESS_GROUP`. The Win32 `GenerateConsoleCtrlEvent` API
+  only delivers events to processes in the same console group, so a
+  plain `taskkill` won't reach the daemon. The verifier at
+  `tools/e2e/reload_test.py` is the canonical reference — it launches
+  cloakdns with the right `creationflags` and calls
+  `p.send_signal(signal.CTRL_BREAK_EVENT)`.
 
 ## Deployment
 
