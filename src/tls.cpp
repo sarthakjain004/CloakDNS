@@ -7,6 +7,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -91,7 +92,7 @@ void init() {
 std::string compute_spki_pin(X509* cert) {
     if (!cert) throw std::runtime_error{"tls: compute_spki_pin: null cert"};
 
-    X509_PUBKEY* pubkey = X509_get_X509_PUBKEY(cert);
+    auto* pubkey = X509_get_X509_PUBKEY(cert);
     if (!pubkey) throw std::runtime_error{"tls: X509_get_X509_PUBKEY failed"};
 
     unsigned char* der = nullptr;
@@ -128,25 +129,35 @@ bool configure_ssl_for_connection(SSL* ssl,
 
 #ifdef CLOAKDNS_HAVE_ECH
     if (!cfg.ech_config_list.empty()) {
-        // Inner SNI (encrypted): the actual hostname the server expects on
-        // the cert. This is what gets verified post-handshake.
-        if (SSL_set_tlsext_host_name(ssl, real_sni.c_str()) != 1) return false;
-        if (SSL_set1_host(ssl, real_sni.c_str()) != 1) return false;
-
-        // Outer SNI (cleartext): the decoy hostname an on-path observer
-        // sees. Optional — when unset, OpenSSL picks a sensible default
-        // based on the ECHConfigList contents.
-        if (!cfg.ech_outer_servername.empty()) {
-            if (SSL_ech_set1_outer_server_name(ssl,
-                    cfg.ech_outer_servername.c_str()) != 1)
-                return false;
+        // Inner SNI: real hostname; cert verification matches against this
+        // post-handshake. Goes inside the ECH-encrypted ClientHello.
+        if (SSL_set_tlsext_host_name(ssl, real_sni.c_str()) != 1) {
+            ERR_print_errors_fp(stderr);
+            return false;
         }
-
+        if (SSL_set1_host(ssl, real_sni.c_str()) != 1) {
+            ERR_print_errors_fp(stderr);
+            return false;
+        }
+        // ECHConfigList must be set before the outer-name override so the
+        // outer-name validator inside OpenSSL has a config to validate
+        // against. Order matters in OpenSSL 4.0+.
         const auto* bytes = reinterpret_cast<const unsigned char*>(
             cfg.ech_config_list.data());
         if (SSL_set1_ech_config_list(ssl, bytes,
                                      cfg.ech_config_list.size()) != 1) {
+            ERR_print_errors_fp(stderr);
             return false;
+        }
+        // Outer SNI (cleartext): the decoy. When unset, OpenSSL uses the
+        // public_name embedded in the ECHConfigList. The third arg is the
+        // 4.0-introduced no_outer flag — 0 to honor our explicit name.
+        if (!cfg.ech_outer_servername.empty()) {
+            if (SSL_ech_set1_outer_server_name(ssl,
+                    cfg.ech_outer_servername.c_str(), 0) != 1) {
+                ERR_print_errors_fp(stderr);
+                return false;
+            }
         }
         return true;
     }
