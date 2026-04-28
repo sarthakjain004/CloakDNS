@@ -499,6 +499,7 @@ int main(int argc, char** argv) {
             upstream_cfg.ech_outer_servername = cfg.upstream.ech_outer_servername;
             upstream_cfg.ech_config_list      = cfg.upstream.ech_config_list;
         }
+        upstream_cfg.ech_grease = cfg.upstream.ech_grease;
         upstream_cfg.timeout            = cfg.upstream.timeout;
         upstream_cfg.retries_on_primary = cfg.upstream.retries_on_primary;
         upstream_cfg.padding_block_size = cfg.upstream.padding_block_size;

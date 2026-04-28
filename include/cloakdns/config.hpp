@@ -63,6 +63,12 @@ struct UpstreamConfig {
     bool                       ech_autobootstrap{false};
     std::vector<Endpoint>      ech_bootstrap_servers{
                                   {"1.0.0.1", 53}, {"8.8.8.8", 53}};
+
+    // Send GREASE ECH on connections where real ECH isn't configured
+    // (RFC 9849 §6.2). Off by default — enable when you want this build
+    // to be wire-indistinguishable from an ECH-using client even when
+    // talking to a non-ECH upstream.
+    bool                       ech_grease{false};
 };
 
 struct BlocklistConfig {

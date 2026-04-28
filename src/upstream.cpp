@@ -92,6 +92,8 @@ UpstreamForwarder::UpstreamForwarder(asio::io_context& ctx, Config cfg)
         tls_cfg_ = std::make_unique<tls::ContextConfig>();
         tls_cfg_->spki_pins  = cfg_.spki_pins;
         tls_cfg_->servername = cfg_.servername;
+        tls_cfg_->ech_grease = cfg_.ech_grease;
+        tls_cfg_->alpn       = tls::HttpAlpn::None;  // DoT is not HTTP-bearing
         tls_cfg_->ech.store(tls::EchConfig::Snapshot{
             .bytes = cfg_.ech_config_list.empty()
                 ? nullptr
@@ -108,6 +110,12 @@ UpstreamForwarder::UpstreamForwarder(asio::io_context& ctx, Config cfg)
         tls_cfg_ = std::make_unique<tls::ContextConfig>();
         tls_cfg_->spki_pins  = cfg_.spki_pins;
         tls_cfg_->servername = cfg_.servername;
+        tls_cfg_->ech_grease = cfg_.ech_grease;
+        // RFC 8484 / 7301: advertise http/1.1 so a real-world DoH
+        // server's ALPN check passes. Cloudflare's DoH endpoint in
+        // particular requires ALPN — without it the handshake fails
+        // with "no application protocol" since 2025-ish.
+        tls_cfg_->alpn       = tls::HttpAlpn::Http1Only;
         tls_cfg_->ech.store(tls::EchConfig::Snapshot{
             .bytes = cfg_.ech_config_list.empty()
                 ? nullptr
