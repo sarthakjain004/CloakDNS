@@ -38,6 +38,14 @@ struct UpstreamConfig {
     // RFC 7469 SPKI pins ("sha256/<base64>"). Empty = chain validation only.
     std::vector<std::string>   spki_pins;
 
+    // PEM file of trusted CA certificates for upstream chain validation.
+    // Required on Windows when the binary is built against an OpenSSL
+    // distribution with no compiled-in trust store (FireDaemon OpenSSL 4
+    // ships zero CA certs). Leave empty on Linux / macOS to use system
+    // defaults; the TLS layer also auto-discovers `cacert.pem` next to
+    // the executable on Windows when this is unset.
+    std::string                ca_file;
+
     // DoH request path. Standard is "/dns-query". Only consulted when
     // protocol = "doh".
     std::string                doh_path{"/dns-query"};

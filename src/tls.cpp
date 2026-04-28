@@ -14,9 +14,15 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <iostream>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace cloak::tls {
 namespace {
@@ -299,13 +305,61 @@ std::optional<std::vector<std::byte>> base64_decode(std::string_view input) {
     return out;
 }
 
+namespace {
+
+#ifdef _WIN32
+// Locate `cacert.pem` next to the running executable so the operator
+// can drop the Mozilla CA bundle alongside cloakdns.exe and have it
+// picked up automatically. Returns empty when the file isn't there.
+std::string discover_windows_ca_file() {
+    std::array<wchar_t, MAX_PATH> buf{};
+    const DWORD n = GetModuleFileNameW(nullptr, buf.data(),
+                                       static_cast<DWORD>(buf.size()));
+    if (n == 0 || n == buf.size()) return {};
+    std::filesystem::path exe{std::wstring{buf.data(), n}};
+    auto candidate = exe.parent_path() / "cacert.pem";
+    std::error_code ec;
+    if (std::filesystem::exists(candidate, ec))
+        return candidate.string();
+    candidate = std::filesystem::current_path(ec) / "cacert.pem";
+    if (!ec && std::filesystem::exists(candidate, ec))
+        return candidate.string();
+    return {};
+}
+#endif
+
+// Wire trust anchors onto `raw`. Explicit ca_file takes priority; on
+// Windows we additionally auto-discover `cacert.pem` next to the
+// executable because OpenSSL 4 distributions for Windows commonly
+// ship without a default trust store and chain validation would
+// otherwise always fail. System defaults (POSIX paths, SSL_CERT_FILE
+// env) are layered on regardless so a configured ca_file augments
+// rather than replaces them.
+void load_trust_anchors(SSL_CTX* raw, const std::string& ca_file) {
+    std::string effective = ca_file;
+#ifdef _WIN32
+    if (effective.empty()) effective = discover_windows_ca_file();
+#endif
+    if (!effective.empty()) {
+        if (SSL_CTX_load_verify_locations(raw, effective.c_str(), nullptr) != 1) {
+            throw std::runtime_error{
+                "tls: SSL_CTX_load_verify_locations(" + effective + ") failed"};
+        }
+        std::cerr << "tls: trust anchors loaded from " << effective << std::endl;
+    }
+    // Always try platform defaults too (no-op on Windows when nothing
+    // is compiled in; SSL_CERT_FILE env var is honoured here).
+    (void)SSL_CTX_set_default_verify_paths(raw);
+}
+
+} // namespace
+
 Context::Context(ContextConfig& cfg)
     : ctx_(asio::ssl::context::tls_client), cfg_(&cfg) {
     init();
     SSL_CTX* raw = ctx_.native_handle();
     SSL_CTX_set_min_proto_version(raw, TLS1_2_VERSION);
-    if (!SSL_CTX_set_default_verify_paths(raw))
-        throw std::runtime_error{"tls: SSL_CTX_set_default_verify_paths failed"};
+    load_trust_anchors(raw, cfg.ca_file);
     SSL_CTX_set_verify(raw, SSL_VERIFY_PEER, verify_callback);
     SSL_CTX_set_ex_data(raw, g_ex_data_idx.load(std::memory_order_acquire), cfg_);
 

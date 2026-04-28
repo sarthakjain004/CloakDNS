@@ -6,6 +6,7 @@
 #include <toml++/toml.hpp>
 
 #include <charconv>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -103,6 +104,11 @@ UpstreamConfig parse_upstream(const toml::table& t) {
                 fail("upstream.spki_pins: '" + *s + "' must start with \"sha256/\"");
             out.spki_pins.push_back(*s);
         }
+    }
+    if (auto v = t["ca_file"].value<std::string>(); v) {
+        if (!v->empty() && !std::filesystem::exists(*v))
+            fail("upstream.ca_file: '" + *v + "' does not exist");
+        out.ca_file = *v;
     }
     if (auto v = t["doh_path"].value<std::string>(); v) {
         if (v->empty() || v->front() != '/')

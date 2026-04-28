@@ -112,6 +112,15 @@ struct ContextConfig {
     // we use today for DoH since post_https_oneshot speaks HTTP/1.1.
     HttpAlpn alpn{HttpAlpn::None};
 
+    // Trust anchors for upstream chain validation. When set, loaded via
+    // SSL_CTX_load_verify_locations and combined with system defaults.
+    // When empty: on Windows the Context constructor auto-discovers
+    // `cacert.pem` next to the executable / in the cwd, because
+    // OpenSSL's compiled-in default paths are POSIX-only and a stock
+    // FireDaemon OpenSSL 4 build ships zero CA certs on Windows —
+    // without trust anchors every DoT/DoH chain validation fails.
+    std::string ca_file;
+
     // Default-constructible so callers can populate field-by-field. Copy
     // and move are deleted because of the shared_mutex inside `ech` —
     // the codebase always builds ContextConfig in place inside a

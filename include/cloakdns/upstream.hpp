@@ -61,6 +61,12 @@ public:
         // replacement.
         std::vector<std::string> spki_pins;
 
+        // PEM file of trusted CAs for upstream chain validation. Empty
+        // falls back to system defaults (and to `cacert.pem` next to the
+        // executable on Windows). Required on Windows when OpenSSL was
+        // built with no compiled-in trust store.
+        std::string ca_file;
+
         // DoH request path. Standard is "/dns-query"; some operators
         // expose alternate paths. Ignored unless protocol == Doh.
         std::string doh_path{"/dns-query"};
