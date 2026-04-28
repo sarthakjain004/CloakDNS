@@ -107,7 +107,7 @@ struct ContextConfig {
 // the codebase (Blocklist hot reload).
 class Context {
 public:
-    explicit Context(const ContextConfig& cfg);
+    explicit Context(ContextConfig& cfg);
     Context(const Context&) = delete;
     Context& operator=(const Context&) = delete;
     Context(Context&&) = delete;
@@ -119,10 +119,24 @@ public:
     SSL_CTX*             native() noexcept       { return ctx_.native_handle(); }
     const ContextConfig& config() const noexcept { return *cfg_; }
 
+    // Live-mutable view of the ECH state. Callers swap fresh bytes in
+    // here after a FailedRetry handshake or on SIGHUP. Reads via
+    // load() are safe to interleave with stores().
+    EchConfig& ech_config() noexcept { return cfg_->ech; }
+
 private:
-    asio::ssl::context   ctx_;
-    const ContextConfig* cfg_;
+    asio::ssl::context  ctx_;
+    ContextConfig*      cfg_;
 };
+
+// On a freshly-failed ECH handshake (when ech_status returns
+// FailedRetry), pull the server-supplied retry_configs and atomically
+// swap them into ctx's EchConfig. Preserves the existing
+// outer_servername. Returns true if a retry config was applied —
+// caller may re-attempt the handshake exactly once. Returns false
+// (and does not mutate ctx) when no retry config is available, the
+// build has no ECH support, or the SSL_* call refuses.
+bool maybe_apply_ech_retry(Context& ctx, SSL* ssl);
 
 // Apply per-connection TLS settings on a fresh SSL*. Always sets the
 // SNI hostname (`real_sni`) and the cert SAN-match host. When the

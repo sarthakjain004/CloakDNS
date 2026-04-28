@@ -82,6 +82,10 @@ public:
 
     Protocol protocol() const noexcept { return cfg_.protocol; }
 
+    // Live TLS context, or nullptr for protocol == Udp. SIGHUP uses this
+    // to swap a fresh ECHConfigList in without rebuilding the forwarder.
+    tls::Context* tls_context() noexcept { return tls_ctx_.get(); }
+
 private:
     asio::awaitable<std::optional<std::vector<std::byte>>>
     try_once_udp(std::span<const std::byte> outbound,
