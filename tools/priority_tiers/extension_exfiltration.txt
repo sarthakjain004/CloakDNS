@@ -1,0 +1,82 @@
+# CloakDNS priority tier — browser-extension data-exfiltration endpoints
+#
+# Arcanum (2024) found 3,028 Chrome extensions (2.68% of the store) that
+# automatically exfiltrate user data via outbound web requests, 65 of
+# them over plain HTTP. The dominant exfil channels are: ad-tech /
+# analytics endpoints injected into the request stream, telemetry
+# servers operated by the extension vendor, and consumer-VPN backends
+# that capture browsing history.
+#
+# This tier focuses on **the receiving endpoints** so blocking them at
+# the DNS layer kills the exfiltration leg regardless of which
+# extension is sending. Browser extensions can't see system DNS, so
+# they cannot reach a CloakDNS-listed endpoint without going through
+# CloakDNS (assuming the OS resolver is set to CloakDNS).
+#
+# Format: <IP> <hostname>  (one rule per line; suffix-matched).
+#
+# Research provenance per group is in the inline comments below.
+
+# ---- Consumer-VPN extensions that exfiltrate browsing history ----------
+# Touch VPN (~8M Chrome users), Hola VPN (~6M), Hideman, and similar
+# free-VPN extensions have been repeatedly documented (Arcanum 2024,
+# CSIRO 2018, Citizen Lab 2020) routing the user's clickstream through
+# their own logging servers in addition to providing the VPN.
+0.0.0.0 touchvpn.com
+0.0.0.0 touchvpn.net
+0.0.0.0 hola.org
+0.0.0.0 holavpn.net
+0.0.0.0 holacdn.com
+0.0.0.0 luminati.io
+0.0.0.0 brightdata.com
+0.0.0.0 hideman.net
+0.0.0.0 betternet.co
+0.0.0.0 betterapi.net
+
+# ---- Telemetry / "extension health" hubs --------------------------------
+# Generic SaaS analytics SDKs (Amplitude, Mixpanel, AdRoll, MaxCDN
+# stats) ARE bundled by exfiltrating extensions per Arcanum 2024, but
+# they're also legitimately used by many normal websites. Blocking
+# them at the DNS layer overblocks. Users who want maximum protection
+# against extension exfiltration AND don't mind breaking analytics on
+# any site can extend this tier with:
+#
+#     a.amplitude.com api.mixpanel.com cdn.mxpnl.com d.adroll.com
+#     stats.maxcdn.com
+#
+# We deliberately leave them out of the default tier to keep this list
+# specifically about extension-vendor-controlled exfil endpoints.
+
+# ---- Adware-injecting / search-hijacking extensions --------------------
+# Ad-injecting and search-redirecting extensions phone home to vendor
+# infrastructure for instructions and to ship visited-URLs back. Domains
+# below are sourced from the Arcanum 2024 cross-extension map and
+# legacy adblock filter-list "extension hijack" tags.
+0.0.0.0 superfish.com
+0.0.0.0 visualdiscovery.com
+0.0.0.0 ws.superfish.com
+0.0.0.0 startpageing123.com
+0.0.0.0 trotux.com
+0.0.0.0 mysearch.com
+0.0.0.0 search.smarttoolbox.com
+0.0.0.0 ads-track.com
+0.0.0.0 tagjs.cdn.net
+
+# ---- Crypto-miner / coinhive-style extension payloads -----------------
+# A subset of malicious extensions inject in-page mining JS. The miner
+# pool endpoints don't change much; blocking them stops the JS even if
+# the extension's primary code keeps running.
+0.0.0.0 coinhive.com
+0.0.0.0 coin-hive.com
+0.0.0.0 authedmine.com
+0.0.0.0 cnhv.co
+0.0.0.0 jsecoin.com
+0.0.0.0 cryptoloot.pro
+
+# ---- Identity-fingerprinting endpoints abused by extensions ------------
+# Extensions sometimes piggy-back on fingerprinting SDKs to build a
+# stable per-install identifier they ship alongside browsing data. These
+# overlap with `evercookies.txt` but are listed here too because the
+# extension-exfiltration use case is its own threat model.
+0.0.0.0 cdn.augur.io
+0.0.0.0 augur.io
