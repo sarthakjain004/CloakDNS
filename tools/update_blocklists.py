@@ -162,14 +162,52 @@ NEVER_BLOCK: frozenset[str] = frozenset({
     # subdomain of these apexes, so wildcard-blocking the apex breaks
     # countless third-party apps the user relies on.
     "supabase.co", "supabase.com",
-    "firebaseio.com", "appspot.com",  # Firebase realtime DB / GAE apps
+    "firebaseio.com", "appspot.com",
     "vercel.app", "netlify.app", "netlify.com",
-    "herokuapp.com", "fly.dev", "render.com",
-    "railway.app", "deno.dev",
-    "pages.dev", "workers.dev",       # Cloudflare Pages / Workers
+    "herokuapp.com", "heroku.com", "fly.dev", "render.com",
+    "railway.app", "deno.dev", "deno.com",
+    "pages.dev", "workers.dev",
     "azurestaticapps.net",
-    "googleusercontent.com",          # already above; Drive/Sites docs
-    "web.app", "firebaseapp.com",     # Firebase Hosting
+    "web.app", "firebaseapp.com",
+    "shopify.com", "wordpress.com",
+    # Public CDNs — wildcard-blocking these breaks third-party scripts
+    # on a huge fraction of the web (jQuery, Bootstrap, Tailwind, etc).
+    "jsdelivr.net", "unpkg.com",
+    # Banking / payments — essential user services
+    "americanexpress.com", "bankofamerica.com", "citi.com",
+    "visa.com", "wellsfargo.com", "revolut.com", "binance.com",
+    # Major retail
+    "alibaba.com", "aliexpress.com", "ebay.com", "etsy.com",
+    "kroger.com", "nike.com", "target.com", "temu.com",
+    "walmart.com", "walmart.ca",
+    # News
+    "bloomberg.com", "nytimes.com", "wsj.com",
+    # Travel
+    "booking.com", "expedia.com", "hotels.com",
+    # Streaming / media
+    "deezer.com", "hulu.com", "pandora.com", "soundcloud.com",
+    "opera.com",
+    # Social / community
+    "gofundme.com", "imgur.com", "kickstarter.com",
+    "patreon.com", "quora.com", "messenger.com",
+    # Storage / productivity
+    "airtable.com", "box.com", "canva.com", "dropbox.com",
+    "fastmail.com", "figma.com",
+    # Asian platforms (consumer end-user)
+    "baidu.com", "naver.com", "naver.net", "qq.com",
+    "taobao.com", "weibo.com", "weibo.cn",
+    # Dev / SaaS / corporate
+    "adobe.io", "akamai.com", "behance.net", "cisco.com",
+    "codecademy.com", "coursera.org", "dribbble.com",
+    "github.dev", "grafana.net", "honeycomb.io",
+    "kaggle.com", "newrelic.com", "sumologic.com",
+    "udemy.com", "unsplash.com",
+    # Apps / logistics
+    "dhl.com", "ups.com", "lyft.com", "uber.com", "ubereats.com",
+    # Stock / images
+    "pexels.com", "shutterstock.com",
+    # Mail
+    "aol.com", "yahoo.com", "yahoo.net",
 })
 
 
