@@ -1,4 +1,5 @@
 #include "cloakdns/tls.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <openssl/crypto.h>
 #include <openssl/err.h>
@@ -27,20 +28,20 @@
 namespace cloak::tls {
 namespace {
 
-std::atomic<int> g_ex_data_idx{-1};
+atomic<int> g_ex_data_idx{-1};
 std::once_flag   g_init_flag;
 
 constexpr char kBase64Alphabet[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-std::string base64_encode(const unsigned char* data, std::size_t len) {
-    std::string out;
+string base64_encode(const unsigned char* data, size_t len) {
+    string out;
     out.reserve(((len + 2) / 3) * 4);
-    for (std::size_t i = 0; i < len; i += 3) {
-        const std::uint32_t b0 = data[i];
-        const std::uint32_t b1 = (i + 1 < len) ? data[i + 1] : 0u;
-        const std::uint32_t b2 = (i + 2 < len) ? data[i + 2] : 0u;
-        const std::uint32_t triple = (b0 << 16) | (b1 << 8) | b2;
+    for (size_t i = 0; i < len; i += 3) {
+        const uint32_t b0 = data[i];
+        const uint32_t b1 = (i + 1 < len) ? data[i + 1] : 0u;
+        const uint32_t b2 = (i + 2 < len) ? data[i + 2] : 0u;
+        const uint32_t triple = (b0 << 16) | (b1 << 8) | b2;
         out.push_back(kBase64Alphabet[(triple >> 18) & 0x3F]);
         out.push_back(kBase64Alphabet[(triple >> 12) & 0x3F]);
         out.push_back((i + 1 < len) ? kBase64Alphabet[(triple >> 6) & 0x3F] : '=');
@@ -72,10 +73,10 @@ int verify_callback(int preverify_ok, X509_STORE_CTX* ctx) {
         SSL_CTX_get_ex_data(ssl_ctx, idx));
     if (!cfg || cfg->spki_pins.empty()) return 1;  // pinning disabled
 
-    std::string actual;
+    string actual;
     try {
         actual = compute_spki_pin(cert);
-    } catch (const std::exception&) {
+    } catch (const exception&) {
         return 0;
     }
 
@@ -96,34 +97,34 @@ void init() {
                          OPENSSL_INIT_LOAD_CRYPTO_STRINGS, nullptr);
         const int idx = SSL_CTX_get_ex_new_index(0, nullptr, nullptr, nullptr, nullptr);
         if (idx < 0)
-            throw std::runtime_error{"tls: SSL_CTX_get_ex_new_index failed"};
+            throw runtime_error{"tls: SSL_CTX_get_ex_new_index failed"};
         g_ex_data_idx.store(idx, std::memory_order_release);
     });
 }
 
-std::string compute_spki_pin(X509* cert) {
-    if (!cert) throw std::runtime_error{"tls: compute_spki_pin: null cert"};
+string compute_spki_pin(X509* cert) {
+    if (!cert) throw runtime_error{"tls: compute_spki_pin: null cert"};
 
     auto* pubkey = X509_get_X509_PUBKEY(cert);
-    if (!pubkey) throw std::runtime_error{"tls: X509_get_X509_PUBKEY failed"};
+    if (!pubkey) throw runtime_error{"tls: X509_get_X509_PUBKEY failed"};
 
     unsigned char* der = nullptr;
     const int len = i2d_X509_PUBKEY(pubkey, &der);
     if (len <= 0 || !der)
-        throw std::runtime_error{"tls: i2d_X509_PUBKEY failed"};
+        throw runtime_error{"tls: i2d_X509_PUBKEY failed"};
 
     // EVP_Digest is the 3.0-clean SHA-256 API; the legacy SHA256() helper
     // is deprecated under -DOPENSSL_NO_DEPRECATED_3_0.
     unsigned char hash[EVP_MAX_MD_SIZE];
     unsigned int  hash_len = 0;
-    if (EVP_Digest(der, static_cast<std::size_t>(len),
+    if (EVP_Digest(der, static_cast<size_t>(len),
                    hash, &hash_len, EVP_sha256(), nullptr) != 1) {
         OPENSSL_free(der);
-        throw std::runtime_error{"tls: EVP_Digest(sha256) failed"};
+        throw runtime_error{"tls: EVP_Digest(sha256) failed"};
     }
     OPENSSL_free(der);
 
-    return std::string{"sha256/"} + base64_encode(hash, hash_len);
+    return string{"sha256/"} + base64_encode(hash, hash_len);
 }
 
 bool ech_supported() noexcept {
@@ -136,7 +137,7 @@ bool ech_supported() noexcept {
 
 bool configure_ssl_for_connection(SSL* ssl,
                                   const ContextConfig& cfg,
-                                  const std::string& real_sni) {
+                                  const string& real_sni) {
     if (!ssl || real_sni.empty()) return false;
 
 #ifdef CLOAKDNS_HAVE_ECH
@@ -220,7 +221,7 @@ EchStatus ech_status(SSL* ssl) noexcept {
 #endif
 }
 
-std::string_view to_string(EchStatus s) noexcept {
+string_view to_string(EchStatus s) noexcept {
     switch (s) {
       case EchStatus::Success:     return "success";
       case EchStatus::Greased:     return "greased";
@@ -231,76 +232,76 @@ std::string_view to_string(EchStatus s) noexcept {
     return "not_tried";
 }
 
-std::optional<std::vector<std::byte>> ech_retry_config(SSL* ssl) noexcept {
+optional<vector<byte>> ech_retry_config(SSL* ssl) noexcept {
 #ifdef CLOAKDNS_HAVE_ECH
-    if (!ssl) return std::nullopt;
+    if (!ssl) return nullopt;
     unsigned char* p = nullptr;
-    std::size_t    len = 0;
+    size_t    len = 0;
     const int rc = SSL_ech_get1_retry_config(ssl, &p, &len);
     if (rc != 1 || !p || len == 0) {
         if (p) OPENSSL_free(p);
-        return std::nullopt;
+        return nullopt;
     }
-    std::vector<std::byte> out(len);
+    vector<byte> out(len);
     std::memcpy(out.data(), p, len);
     OPENSSL_free(p);
     return out;
 #else
     (void)ssl;
-    return std::nullopt;
+    return nullopt;
 #endif
 }
 
-std::optional<std::vector<std::byte>> base64_decode(std::string_view input) {
-    static constexpr std::int8_t kInvalid = -1;
+optional<vector<byte>> base64_decode(string_view input) {
+    static constexpr int8_t kInvalid = -1;
     static constexpr auto kLookup = [] {
-        std::array<std::int8_t, 256> t{};
+        array<int8_t, 256> t{};
         for (auto& v : t) v = kInvalid;
-        for (int i = 0; i < 26; ++i) t[std::size_t('A' + i)] = static_cast<std::int8_t>(i);
-        for (int i = 0; i < 26; ++i) t[std::size_t('a' + i)] = static_cast<std::int8_t>(26 + i);
-        for (int i = 0; i < 10; ++i) t[std::size_t('0' + i)] = static_cast<std::int8_t>(52 + i);
-        t[std::size_t('+')] = 62;
-        t[std::size_t('/')] = 63;
+        for (int i = 0; i < 26; ++i) t[size_t('A' + i)] = static_cast<int8_t>(i);
+        for (int i = 0; i < 26; ++i) t[size_t('a' + i)] = static_cast<int8_t>(26 + i);
+        for (int i = 0; i < 10; ++i) t[size_t('0' + i)] = static_cast<int8_t>(52 + i);
+        t[size_t('+')] = 62;
+        t[size_t('/')] = 63;
         return t;
     }();
 
     // Strip whitespace into a packed buffer.
-    std::string packed;
+    string packed;
     packed.reserve(input.size());
     for (char c : input) {
         if (c == ' ' || c == '\t' || c == '\n' || c == '\r') continue;
         packed.push_back(c);
     }
-    if (packed.empty()) return std::vector<std::byte>{};
-    if (packed.size() % 4 != 0) return std::nullopt;
+    if (packed.empty()) return vector<byte>{};
+    if (packed.size() % 4 != 0) return nullopt;
 
     // Count trailing '=' padding (0–2).
-    std::size_t pad = 0;
+    size_t pad = 0;
     if (packed.size() >= 1 && packed[packed.size() - 1] == '=') {
         pad = 1;
         if (packed.size() >= 2 && packed[packed.size() - 2] == '=') pad = 2;
     }
 
-    std::vector<std::byte> out;
+    vector<byte> out;
     out.reserve(packed.size() / 4 * 3);
-    for (std::size_t i = 0; i + 4 <= packed.size(); i += 4) {
-        const auto a = kLookup[std::uint8_t(packed[i])];
-        const auto b = kLookup[std::uint8_t(packed[i + 1])];
-        const auto c_idx = (packed[i + 2] == '=') ? 0 : kLookup[std::uint8_t(packed[i + 2])];
-        const auto d_idx = (packed[i + 3] == '=') ? 0 : kLookup[std::uint8_t(packed[i + 3])];
+    for (size_t i = 0; i + 4 <= packed.size(); i += 4) {
+        const auto a = kLookup[uint8_t(packed[i])];
+        const auto b = kLookup[uint8_t(packed[i + 1])];
+        const auto c_idx = (packed[i + 2] == '=') ? 0 : kLookup[uint8_t(packed[i + 2])];
+        const auto d_idx = (packed[i + 3] == '=') ? 0 : kLookup[uint8_t(packed[i + 3])];
         if (a == kInvalid || b == kInvalid ||
             (packed[i + 2] != '=' && c_idx == kInvalid) ||
             (packed[i + 3] != '=' && d_idx == kInvalid)) {
-            return std::nullopt;
+            return nullopt;
         }
-        const std::uint32_t triple =
-            (std::uint32_t(a) << 18) | (std::uint32_t(b) << 12) |
-            (std::uint32_t(c_idx) << 6) | std::uint32_t(d_idx);
-        out.push_back(std::byte((triple >> 16) & 0xff));
+        const uint32_t triple =
+            (uint32_t(a) << 18) | (uint32_t(b) << 12) |
+            (uint32_t(c_idx) << 6) | uint32_t(d_idx);
+        out.push_back(byte((triple >> 16) & 0xff));
         if (i + 4 != packed.size() || pad < 2)
-            out.push_back(std::byte((triple >> 8) & 0xff));
+            out.push_back(byte((triple >> 8) & 0xff));
         if (i + 4 != packed.size() || pad < 1)
-            out.push_back(std::byte(triple & 0xff));
+            out.push_back(byte(triple & 0xff));
     }
     return out;
 }
@@ -311,18 +312,18 @@ namespace {
 // Locate `cacert.pem` next to the running executable so the operator
 // can drop the Mozilla CA bundle alongside cloakdns.exe and have it
 // picked up automatically. Returns empty when the file isn't there.
-std::string discover_windows_ca_file() {
-    std::array<wchar_t, MAX_PATH> buf{};
+string discover_windows_ca_file() {
+    array<wchar_t, MAX_PATH> buf{};
     const DWORD n = GetModuleFileNameW(nullptr, buf.data(),
                                        static_cast<DWORD>(buf.size()));
     if (n == 0 || n == buf.size()) return {};
-    std::filesystem::path exe{std::wstring{buf.data(), n}};
+    fs::path exe{std::wstring{buf.data(), n}};
     auto candidate = exe.parent_path() / "cacert.pem";
-    std::error_code ec;
-    if (std::filesystem::exists(candidate, ec))
+    error_code ec;
+    if (fs::exists(candidate, ec))
         return candidate.string();
-    candidate = std::filesystem::current_path(ec) / "cacert.pem";
-    if (!ec && std::filesystem::exists(candidate, ec))
+    candidate = fs::current_path(ec) / "cacert.pem";
+    if (!ec && fs::exists(candidate, ec))
         return candidate.string();
     return {};
 }
@@ -335,14 +336,14 @@ std::string discover_windows_ca_file() {
 // otherwise always fail. System defaults (POSIX paths, SSL_CERT_FILE
 // env) are layered on regardless so a configured ca_file augments
 // rather than replaces them.
-void load_trust_anchors(SSL_CTX* raw, const std::string& ca_file) {
-    std::string effective = ca_file;
+void load_trust_anchors(SSL_CTX* raw, const string& ca_file) {
+    string effective = ca_file;
 #ifdef _WIN32
     if (effective.empty()) effective = discover_windows_ca_file();
 #endif
     if (!effective.empty()) {
         if (SSL_CTX_load_verify_locations(raw, effective.c_str(), nullptr) != 1) {
-            throw std::runtime_error{
+            throw runtime_error{
                 "tls: SSL_CTX_load_verify_locations(" + effective + ") failed"};
         }
         std::cerr << "tls: trust anchors loaded from " << effective << std::endl;
@@ -372,20 +373,20 @@ Context::Context(ContextConfig& cfg)
         };
         // SSL_CTX_set_alpn_protos returns 0 on SUCCESS (inverted).
         if (SSL_CTX_set_alpn_protos(raw, kAlpnHttp1, sizeof(kAlpnHttp1)) != 0)
-            throw std::runtime_error{"tls: SSL_CTX_set_alpn_protos(http/1.1) failed"};
+            throw runtime_error{"tls: SSL_CTX_set_alpn_protos(http/1.1) failed"};
     }
 }
 
-std::optional<std::string>
-validate_ech_config_list(std::span<const std::byte> bytes) noexcept {
+optional<string>
+validate_ech_config_list(span<const byte> bytes) noexcept {
 #ifdef CLOAKDNS_HAVE_ECH
-    if (bytes.empty()) return std::string{"ECHConfigList is empty"};
+    if (bytes.empty()) return string{"ECHConfigList is empty"};
     SSL_CTX* tmp_ctx = SSL_CTX_new(TLS_client_method());
-    if (!tmp_ctx) return std::string{"validate: SSL_CTX_new failed"};
+    if (!tmp_ctx) return string{"validate: SSL_CTX_new failed"};
     SSL* tmp_ssl = SSL_new(tmp_ctx);
     if (!tmp_ssl) {
         SSL_CTX_free(tmp_ctx);
-        return std::string{"validate: SSL_new failed"};
+        return string{"validate: SSL_new failed"};
     }
     const auto* p = reinterpret_cast<const unsigned char*>(bytes.data());
     const int rc = SSL_set1_ech_config_list(tmp_ssl, p, bytes.size());
@@ -399,12 +400,12 @@ validate_ech_config_list(std::span<const std::byte> bytes) noexcept {
         ERR_error_string_n(err, buf, sizeof(buf));
         // Drain any remaining errors so they don't pollute later calls.
         while (ERR_get_error()) {}
-        return std::string{"ECHConfigList rejected by OpenSSL: "} + buf;
+        return string{"ECHConfigList rejected by OpenSSL: "} + buf;
     }
-    return std::nullopt;
+    return nullopt;
 #else
     (void)bytes;
-    return std::nullopt;
+    return nullopt;
 #endif
 }
 
@@ -415,11 +416,11 @@ bool maybe_apply_ech_retry(Context& ctx, SSL* ssl) {
     auto& ech = ctx.ech_config();
     auto current = ech.load();
     EchConfig::Snapshot fresh;
-    fresh.bytes = std::make_shared<const std::vector<std::byte>>(std::move(*retry));
+    fresh.bytes = make_shared<const vector<byte>>(std::move(*retry));
     fresh.outer_servername = current.outer_servername;
     // Server just told us the previous config was stale — stamp the
     // fresh bytes with "fetched now" so staleness tracking is honest.
-    fresh.fetched_at = std::chrono::system_clock::now();
+    fresh.fetched_at = chrono::system_clock::now();
     ech.store(std::move(fresh));
     return true;
 }

@@ -1,4 +1,5 @@
 #include "cloakdns/dns_writer.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -11,21 +12,21 @@ constexpr size_t kHeaderSize = 12;
 constexpr size_t kMaxLabel = 63;
 constexpr size_t kMaxName  = 255;
 
-void write_u16_be(std::vector<std::byte>& out, size_t off, uint16_t v) {
-    out[off]     = std::byte{static_cast<uint8_t>((v >> 8) & 0xff)};
-    out[off + 1] = std::byte{static_cast<uint8_t>(v & 0xff)};
+void write_u16_be(vector<byte>& out, size_t off, uint16_t v) {
+    out[off]     = byte{static_cast<uint8_t>((v >> 8) & 0xff)};
+    out[off + 1] = byte{static_cast<uint8_t>(v & 0xff)};
 }
 
-uint16_t read_u16_be(std::span<const std::byte> b, size_t off) {
+uint16_t read_u16_be(span<const byte> b, size_t off) {
     return static_cast<uint16_t>(
-        (static_cast<uint16_t>(std::to_integer<uint8_t>(b[off])) << 8) |
-         static_cast<uint16_t>(std::to_integer<uint8_t>(b[off + 1])));
+        (static_cast<uint16_t>(to_integer<uint8_t>(b[off])) << 8) |
+         static_cast<uint16_t>(to_integer<uint8_t>(b[off + 1])));
 }
 
 // Build a response header in `out` based on `query` flags and rcode.
 // Preserves the query's opcode (bits 14..11) and RD bit (bit 8).
-void write_response_header(std::vector<std::byte>& out,
-                           std::span<const std::byte> query,
+void write_response_header(vector<byte>& out,
+                           span<const byte> query,
                            uint16_t ancount, uint8_t rcode) {
     out[0] = query[0];  // ID high
     out[1] = query[1];  // ID low
@@ -44,8 +45,8 @@ void write_response_header(std::vector<std::byte>& out,
     write_u16_be(out, 10, 0);        // ARCOUNT
 }
 
-void copy_question_bytes(std::vector<std::byte>& out,
-                         std::span<const std::byte> query,
+void copy_question_bytes(vector<byte>& out,
+                         span<const byte> query,
                          size_t question_end) {
     for (size_t i = kHeaderSize; i < question_end; ++i) {
         out[i] = query[i];
@@ -54,90 +55,90 @@ void copy_question_bytes(std::vector<std::byte>& out,
 
 } // namespace
 
-std::vector<std::byte>
-build_block_a_response(std::span<const std::byte> query,
+vector<byte>
+build_block_a_response(span<const byte> query,
                        const DnsMessage& parsed) {
     constexpr size_t kAnswerLen = 16;   // pointer(2) + type(2) + class(2) + ttl(4) + rdlen(2) + rdata(4)
     const size_t q_end = parsed.question_section_end;
-    std::vector<std::byte> out(q_end + kAnswerLen);
+    vector<byte> out(q_end + kAnswerLen);
 
     write_response_header(out, query, /*ancount=*/1, /*rcode=*/0);
     copy_question_bytes(out, query, q_end);
 
     size_t a = q_end;
-    out[a++] = std::byte{0xc0};                  // NAME = pointer
-    out[a++] = std::byte{0x0c};                  //       to offset 12
-    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x01};  // TYPE = A
-    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x01};  // CLASS = IN
-    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x00};
-    out[a++] = std::byte{0x01}; out[a++] = std::byte{0x2c};  // TTL = 300
-    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x04};  // RDLEN = 4
-    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x00};
-    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x00};  // 0.0.0.0
+    out[a++] = byte{0xc0};                  // NAME = pointer
+    out[a++] = byte{0x0c};                  //       to offset 12
+    out[a++] = byte{0x00}; out[a++] = byte{0x01};  // TYPE = A
+    out[a++] = byte{0x00}; out[a++] = byte{0x01};  // CLASS = IN
+    out[a++] = byte{0x00}; out[a++] = byte{0x00};
+    out[a++] = byte{0x01}; out[a++] = byte{0x2c};  // TTL = 300
+    out[a++] = byte{0x00}; out[a++] = byte{0x04};  // RDLEN = 4
+    out[a++] = byte{0x00}; out[a++] = byte{0x00};
+    out[a++] = byte{0x00}; out[a++] = byte{0x00};  // 0.0.0.0
     return out;
 }
 
-std::vector<std::byte>
-build_block_aaaa_response(std::span<const std::byte> query,
+vector<byte>
+build_block_aaaa_response(span<const byte> query,
                           const DnsMessage& parsed) {
     constexpr size_t kAnswerLen = 28;   // pointer(2) + type(2) + class(2) + ttl(4) + rdlen(2) + rdata(16)
     const size_t q_end = parsed.question_section_end;
-    std::vector<std::byte> out(q_end + kAnswerLen);
+    vector<byte> out(q_end + kAnswerLen);
 
     write_response_header(out, query, /*ancount=*/1, /*rcode=*/0);
     copy_question_bytes(out, query, q_end);
 
     size_t a = q_end;
-    out[a++] = std::byte{0xc0};                  // NAME = pointer
-    out[a++] = std::byte{0x0c};                  //       to offset 12
-    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x1c};  // TYPE = AAAA (28)
-    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x01};  // CLASS = IN
-    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x00};
-    out[a++] = std::byte{0x01}; out[a++] = std::byte{0x2c};  // TTL = 300
-    out[a++] = std::byte{0x00}; out[a++] = std::byte{0x10};  // RDLEN = 16
-    for (int i = 0; i < 16; ++i) out[a++] = std::byte{0x00}; // ::
+    out[a++] = byte{0xc0};                  // NAME = pointer
+    out[a++] = byte{0x0c};                  //       to offset 12
+    out[a++] = byte{0x00}; out[a++] = byte{0x1c};  // TYPE = AAAA (28)
+    out[a++] = byte{0x00}; out[a++] = byte{0x01};  // CLASS = IN
+    out[a++] = byte{0x00}; out[a++] = byte{0x00};
+    out[a++] = byte{0x01}; out[a++] = byte{0x2c};  // TTL = 300
+    out[a++] = byte{0x00}; out[a++] = byte{0x10};  // RDLEN = 16
+    for (int i = 0; i < 16; ++i) out[a++] = byte{0x00}; // ::
     return out;
 }
 
-std::vector<std::byte>
-build_block_nodata_response(std::span<const std::byte> query,
+vector<byte>
+build_block_nodata_response(span<const byte> query,
                             const DnsMessage& parsed) {
     const size_t q_end = parsed.question_section_end;
-    std::vector<std::byte> out(q_end);
+    vector<byte> out(q_end);
 
     write_response_header(out, query, /*ancount=*/0, /*rcode=*/0);
     copy_question_bytes(out, query, q_end);
     return out;
 }
 
-std::vector<std::byte>
-build_refused_response(std::span<const std::byte> query,
+vector<byte>
+build_refused_response(span<const byte> query,
                        const DnsMessage& parsed) {
     const size_t q_end = parsed.question_section_end;
-    std::vector<std::byte> out(q_end);
+    vector<byte> out(q_end);
 
     write_response_header(out, query, /*ancount=*/0, /*rcode=*/5);
     copy_question_bytes(out, query, q_end);
     return out;
 }
 
-std::vector<std::byte>
-build_servfail_response(std::span<const std::byte> query,
+vector<byte>
+build_servfail_response(span<const byte> query,
                         const DnsMessage& parsed) {
     const size_t q_end = parsed.question_section_end;
-    std::vector<std::byte> out(q_end);
+    vector<byte> out(q_end);
 
     write_response_header(out, query, /*ancount=*/0, /*rcode=*/2);
     copy_question_bytes(out, query, q_end);
     return out;
 }
 
-std::vector<std::byte>
-build_a_query(std::string_view qname, uint16_t id) {
+vector<byte>
+build_a_query(string_view qname, uint16_t id) {
     if (qname.empty() || qname.size() > kMaxName)
-        throw std::invalid_argument{"build_a_query: qname length"};
+        throw invalid_argument{"build_a_query: qname length"};
     if (qname.front() == '.' || qname.back() == '.')
-        throw std::invalid_argument{"build_a_query: leading/trailing dot"};
+        throw invalid_argument{"build_a_query: leading/trailing dot"};
 
     size_t wire_name_len = 0;
     size_t label_start = 0;
@@ -145,16 +146,16 @@ build_a_query(std::string_view qname, uint16_t id) {
         if (i == qname.size() || qname[i] == '.') {
             const size_t label_len = i - label_start;
             if (label_len == 0 || label_len > kMaxLabel)
-                throw std::invalid_argument{"build_a_query: label length"};
+                throw invalid_argument{"build_a_query: label length"};
             wire_name_len += 1 + label_len;
             label_start = i + 1;
         }
     }
     wire_name_len += 1;  // root terminator
     if (wire_name_len > kMaxName)
-        throw std::invalid_argument{"build_a_query: encoded name > 255"};
+        throw invalid_argument{"build_a_query: encoded name > 255"};
 
-    std::vector<std::byte> out;
+    vector<byte> out;
     out.reserve(kHeaderSize + wire_name_len + 4);
     out.resize(kHeaderSize);
 
@@ -169,15 +170,15 @@ build_a_query(std::string_view qname, uint16_t id) {
     for (size_t i = 0; i <= qname.size(); ++i) {
         if (i == qname.size() || qname[i] == '.') {
             const auto label_len = static_cast<uint8_t>(i - label_start);
-            out.push_back(std::byte{label_len});
+            out.push_back(byte{label_len});
             for (size_t j = label_start; j < i; ++j)
-                out.push_back(std::byte{static_cast<uint8_t>(qname[j])});
+                out.push_back(byte{static_cast<uint8_t>(qname[j])});
             label_start = i + 1;
         }
     }
-    out.push_back(std::byte{0});   // root
-    out.push_back(std::byte{0}); out.push_back(std::byte{1});  // QTYPE=A
-    out.push_back(std::byte{0}); out.push_back(std::byte{1});  // QCLASS=IN
+    out.push_back(byte{0});   // root
+    out.push_back(byte{0}); out.push_back(byte{1});  // QTYPE=A
+    out.push_back(byte{0}); out.push_back(byte{1});  // QCLASS=IN
     return out;
 }
 

@@ -1,4 +1,5 @@
 #include "cloakdns/etld.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <string>
 #include <string_view>
@@ -14,7 +15,7 @@ namespace {
 // in our own DNS captures. Upgrade path is full Mozilla PSL when the
 // ad-hoc list shows its limits; see
 // learnings/safari-cname-defense-and-our-adaptation.md §8.
-constexpr std::string_view kMultiLabelSuffixes[] = {
+constexpr string_view kMultiLabelSuffixes[] = {
     // Reverse DNS — for completeness, though qtype=PTR is filtered out
     // before uncloak runs in our hot path.
     "in-addr.arpa",
@@ -47,7 +48,7 @@ constexpr std::string_view kMultiLabelSuffixes[] = {
     "co.za", "org.za", "ac.za",
 };
 
-bool ends_with_dot_suffix(std::string_view host, std::string_view suffix) {
+bool ends_with_dot_suffix(string_view host, string_view suffix) {
     // host must end with "." + suffix and have at least one byte before.
     if (host.size() <= suffix.size()) return false;
     const size_t off = host.size() - suffix.size();
@@ -58,7 +59,7 @@ bool ends_with_dot_suffix(std::string_view host, std::string_view suffix) {
 
 }  // namespace
 
-std::string etld_plus_one(std::string_view hostname) {
+string etld_plus_one(string_view hostname) {
     // Canonical form: strip trailing dots.
     while (!hostname.empty() && hostname.back() == '.') {
         hostname.remove_suffix(1);
@@ -66,7 +67,7 @@ std::string etld_plus_one(std::string_view hostname) {
     if (hostname.empty()) return {};
 
     // Find the longest multi-label suffix that hostname ends with.
-    std::string_view best;
+    string_view best;
     for (const auto& sfx : kMultiLabelSuffixes) {
         if (ends_with_dot_suffix(hostname, sfx) && sfx.size() > best.size()) {
             best = sfx;
@@ -81,32 +82,32 @@ std::string etld_plus_one(std::string_view hostname) {
         if (suffix_dot_index == 0) {
             // No label before the suffix — return whole hostname as best
             // available answer (degenerate input like ".co.uk").
-            return std::string{hostname};
+            return string{hostname};
         }
         const size_t prev_dot = hostname.rfind('.', suffix_dot_index - 1);
-        if (prev_dot == std::string_view::npos) {
+        if (prev_dot == string_view::npos) {
             // hostname is exactly "label.<best>" — return as-is.
-            return std::string{hostname};
+            return string{hostname};
         }
-        return std::string{hostname.substr(prev_dot + 1)};
+        return string{hostname.substr(prev_dot + 1)};
     }
 
     // No multi-label suffix matched — default to "last two labels".
     const size_t last_dot = hostname.rfind('.');
-    if (last_dot == std::string_view::npos) {
+    if (last_dot == string_view::npos) {
         // Single label (e.g. "localhost").
-        return std::string{hostname};
+        return string{hostname};
     }
     if (last_dot == 0) {
         // Pathological: ".tld" form.
-        return std::string{hostname};
+        return string{hostname};
     }
     const size_t prev_dot = hostname.rfind('.', last_dot - 1);
-    if (prev_dot == std::string_view::npos) {
+    if (prev_dot == string_view::npos) {
         // Exactly two labels (e.g. "example.com").
-        return std::string{hostname};
+        return string{hostname};
     }
-    return std::string{hostname.substr(prev_dot + 1)};
+    return string{hostname.substr(prev_dot + 1)};
 }
 
 }  // namespace cloak

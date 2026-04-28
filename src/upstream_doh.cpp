@@ -11,6 +11,7 @@
 #include "cloakdns/http_client.hpp"
 #include "cloakdns/tls.hpp"
 #include "cloakdns/upstream.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -21,27 +22,27 @@
 
 namespace cloak::detail {
 
-asio::awaitable<std::optional<UpstreamReply>>
+asio::awaitable<optional<UpstreamReply>>
 doh_try_once(asio::io_context& ctx,
              tls::Context& tls_ctx,
              const asio::ip::tcp::endpoint& server,
-             const std::string& host_header,
-             const std::string& path,
-             std::span<const std::byte> outbound,
-             std::chrono::milliseconds timeout) {
+             const string& host_header,
+             const string& path,
+             span<const byte> outbound,
+             chrono::milliseconds timeout) {
     auto resp = co_await http::post_https_oneshot(
         ctx, tls_ctx, server, host_header, path,
         "application/dns-message", outbound, timeout);
-    if (!resp) co_return std::nullopt;
-    if (resp->status != 200) co_return std::nullopt;
+    if (!resp) co_return nullopt;
+    if (resp->status != 200) co_return nullopt;
 
     // RFC 8484 §6: a compliant server returns Content-Type
     // application/dns-message. Cloudflare and Quad9 both honor this; if
     // we ever see something else we should fail rather than try to parse
     // it as DNS.
     if (!resp->content_type.empty() &&
-        resp->content_type.find("application/dns-message") == std::string::npos) {
-        co_return std::nullopt;
+        resp->content_type.find("application/dns-message") == string::npos) {
+        co_return nullopt;
     }
 
     co_return UpstreamReply{

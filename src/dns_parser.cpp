@@ -1,4 +1,5 @@
 #include "cloakdns/dns_parser.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <cstdint>
 
@@ -9,23 +10,23 @@ constexpr size_t kHeaderSize = 12;
 constexpr size_t kMaxNameSize = 255;
 constexpr int kMaxPointerHops = 16;
 
-uint16_t read_u16_be(std::span<const std::byte> b, size_t off) {
+uint16_t read_u16_be(span<const byte> b, size_t off) {
     if (off + 2 > b.size()) throw ParseError{"u16 out of bounds"};
     return static_cast<uint16_t>(
-        (static_cast<uint16_t>(std::to_integer<uint8_t>(b[off])) << 8) |
-         static_cast<uint16_t>(std::to_integer<uint8_t>(b[off + 1])));
+        (static_cast<uint16_t>(to_integer<uint8_t>(b[off])) << 8) |
+         static_cast<uint16_t>(to_integer<uint8_t>(b[off + 1])));
 }
 
-uint32_t read_u32_be(std::span<const std::byte> b, size_t off) {
+uint32_t read_u32_be(span<const byte> b, size_t off) {
     if (off + 4 > b.size()) throw ParseError{"u32 out of bounds"};
-    return (static_cast<uint32_t>(std::to_integer<uint8_t>(b[off]))     << 24) |
-           (static_cast<uint32_t>(std::to_integer<uint8_t>(b[off + 1])) << 16) |
-           (static_cast<uint32_t>(std::to_integer<uint8_t>(b[off + 2])) <<  8) |
-            static_cast<uint32_t>(std::to_integer<uint8_t>(b[off + 3]));
+    return (static_cast<uint32_t>(to_integer<uint8_t>(b[off]))     << 24) |
+           (static_cast<uint32_t>(to_integer<uint8_t>(b[off + 1])) << 16) |
+           (static_cast<uint32_t>(to_integer<uint8_t>(b[off + 2])) <<  8) |
+            static_cast<uint32_t>(to_integer<uint8_t>(b[off + 3]));
 }
 
-std::string decode_name(std::span<const std::byte> pkt, size_t& cursor_inout) {
-    std::string out;
+string decode_name(span<const byte> pkt, size_t& cursor_inout) {
+    string out;
     int hops = 0;
     size_t cursor = cursor_inout;
     bool after_pointer = false;
@@ -34,7 +35,7 @@ std::string decode_name(std::span<const std::byte> pkt, size_t& cursor_inout) {
         if (cursor >= pkt.size())
             throw ParseError{"name: offset out of bounds"};
 
-        const uint8_t len = std::to_integer<uint8_t>(pkt[cursor]);
+        const uint8_t len = to_integer<uint8_t>(pkt[cursor]);
         const uint8_t top = len & 0xC0;
 
         if (top == 0xC0) {
@@ -45,7 +46,7 @@ std::string decode_name(std::span<const std::byte> pkt, size_t& cursor_inout) {
             const uint16_t target =
                 static_cast<uint16_t>(
                     (static_cast<uint16_t>(len & 0x3F) << 8) |
-                     std::to_integer<uint8_t>(pkt[cursor + 1]));
+                     to_integer<uint8_t>(pkt[cursor + 1]));
             if (target >= pkt.size())
                 throw ParseError{"name: pointer target out of bounds"};
             if (!after_pointer) {
@@ -70,7 +71,7 @@ std::string decode_name(std::span<const std::byte> pkt, size_t& cursor_inout) {
 
         if (!out.empty()) out.push_back('.');
         for (size_t i = 0; i < len; ++i) {
-            char c = static_cast<char>(std::to_integer<uint8_t>(pkt[cursor + 1 + i]));
+            char c = static_cast<char>(to_integer<uint8_t>(pkt[cursor + 1 + i]));
             if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + ('a' - 'A'));
             out.push_back(c);
         }
@@ -81,8 +82,8 @@ std::string decode_name(std::span<const std::byte> pkt, size_t& cursor_inout) {
     }
 }
 
-void parse_rr_section(std::span<const std::byte> pkt, size_t& cursor,
-                      uint16_t count, std::vector<ResourceRecord>& out) {
+void parse_rr_section(span<const byte> pkt, size_t& cursor,
+                      uint16_t count, vector<ResourceRecord>& out) {
     out.reserve(count);
     for (uint16_t i = 0; i < count; ++i) {
         ResourceRecord rr;
@@ -104,12 +105,12 @@ void parse_rr_section(std::span<const std::byte> pkt, size_t& cursor,
 
 } // namespace
 
-std::string decode_name_at(std::span<const std::byte> pkt, size_t offset) {
+string decode_name_at(span<const byte> pkt, size_t offset) {
     size_t cursor = offset;
     return decode_name(pkt, cursor);
 }
 
-DnsMessage parse(std::span<const std::byte> packet) {
+DnsMessage parse(span<const byte> packet) {
     if (packet.size() < kHeaderSize)
         throw ParseError{"truncated header"};
 

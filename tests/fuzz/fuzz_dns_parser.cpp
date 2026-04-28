@@ -12,14 +12,15 @@
 // corpus/ as raw bytes. libFuzzer will mutate from there.
 
 #include "cloakdns/dns_parser.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <span>
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-    const auto bytes = std::span<const std::byte>{
-        reinterpret_cast<const std::byte*>(data), size};
+    const auto bytes = span<const byte>{
+        reinterpret_cast<const byte*>(data), size};
     try {
         (void)cloak::parse(bytes);
     } catch (const cloak::ParseError&) {

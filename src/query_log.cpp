@@ -1,6 +1,7 @@
 #include "cloakdns/query_log.hpp"
 
 #include "cloakdns/dns_message.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <array>
 #include <chrono>
@@ -16,7 +17,7 @@
 
 namespace cloak {
 
-std::string_view to_string(LogAction a) noexcept {
+string_view to_string(LogAction a) noexcept {
     switch (a) {
     case LogAction::Allow:      return "allow";
     case LogAction::Block:      return "block";
@@ -31,7 +32,7 @@ std::string_view to_string(LogAction a) noexcept {
 
 namespace {
 
-std::string_view qtype_name(uint16_t qt) noexcept {
+string_view qtype_name(uint16_t qt) noexcept {
     if (qt == dns_type::A)     return "A";
     if (qt == dns_type::CNAME) return "CNAME";
     if (qt == dns_type::AAAA)  return "AAAA";
@@ -48,7 +49,7 @@ std::string_view qtype_name(uint16_t qt) noexcept {
     }
 }
 
-void append_json_escaped(std::string& out, std::string_view s) {
+void append_json_escaped(string& out, string_view s) {
     out.reserve(out.size() + s.size() + 2);
     for (char c : s) {
         const auto u = static_cast<unsigned char>(c);
@@ -62,7 +63,7 @@ void append_json_escaped(std::string& out, std::string_view s) {
         case '\t': out += "\\t";  break;
         default:
             if (u < 0x20) {
-                std::array<char, 8> buf{};
+                array<char, 8> buf{};
                 std::snprintf(buf.data(), buf.size(), "\\u%04x", u);
                 out += buf.data();
             } else {
@@ -72,24 +73,24 @@ void append_json_escaped(std::string& out, std::string_view s) {
     }
 }
 
-void append_json_string(std::string& out, std::string_view s) {
+void append_json_string(string& out, string_view s) {
     out += '"';
     append_json_escaped(out, s);
     out += '"';
 }
 
-void append_timestamp(std::string& out,
-                      std::chrono::system_clock::time_point ts) {
-    const auto time_s = std::chrono::system_clock::to_time_t(ts);
+void append_timestamp(string& out,
+                      chrono::system_clock::time_point ts) {
+    const auto time_s = chrono::system_clock::to_time_t(ts);
     const auto ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(ts.time_since_epoch()).count() % 1000;
+        chrono::duration_cast<chrono::milliseconds>(ts.time_since_epoch()).count() % 1000;
     std::tm tmv{};
 #ifdef _WIN32
     gmtime_s(&tmv, &time_s);
 #else
     gmtime_r(&time_s, &tmv);
 #endif
-    std::array<char, 32> buf{};
+    array<char, 32> buf{};
     std::snprintf(buf.data(), buf.size(),
                   "%04d-%02d-%02dT%02d:%02d:%02d.%03lldZ",
                   tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
@@ -98,8 +99,8 @@ void append_timestamp(std::string& out,
     out += buf.data();
 }
 
-void append_latency(std::string& out, double ms) {
-    std::array<char, 32> buf{};
+void append_latency(string& out, double ms) {
+    array<char, 32> buf{};
     std::snprintf(buf.data(), buf.size(), "%.3f", ms);
     out += buf.data();
 }
@@ -108,7 +109,7 @@ void append_latency(std::string& out, double ms) {
 // in the spec), reasonable distribution for short strings, no
 // dependencies. Used only for redaction display, not security; an 8-hex
 // prefix is sufficient to disambiguate within an analytics session.
-uint64_t fnv1a64(std::string_view s) noexcept {
+uint64_t fnv1a64(string_view s) noexcept {
     constexpr uint64_t kOffset = 0xcbf29ce484222325ULL;
     constexpr uint64_t kPrime  = 0x100000001b3ULL;
     uint64_t h = kOffset;
@@ -121,16 +122,16 @@ uint64_t fnv1a64(std::string_view s) noexcept {
 
 } // namespace
 
-std::string redact_client_id(std::string_view client) {
+string redact_client_id(string_view client) {
     const uint64_t h = fnv1a64(client);
-    std::array<char, 16> buf{};
+    array<char, 16> buf{};
     std::snprintf(buf.data(), buf.size(), "%08x",
                   static_cast<uint32_t>(h >> 32));
-    return std::string{"hash:"} + buf.data();
+    return string{"hash:"} + buf.data();
 }
 
-std::string to_json_line(const QueryLog& r) {
-    std::string out;
+string to_json_line(const QueryLog& r) {
+    string out;
     out.reserve(256);
     out += R"({"v":)";
     out += std::to_string(kQueryLogSchemaVersion);
@@ -186,8 +187,8 @@ QueryLogger::QueryLogger(Config cfg) : cfg_(std::move(cfg)) {
     }
     // Seed bytes_written_ from the existing file size (we open in append
     // mode), so a restart doesn't forget how big the file already is.
-    std::error_code ec;
-    const auto sz = std::filesystem::file_size(cfg_.path, ec);
+    error_code ec;
+    const auto sz = fs::file_size(cfg_.path, ec);
     if (!ec) bytes_written_ = static_cast<size_t>(sz);
 
     if (cfg_.async) {
@@ -199,7 +200,7 @@ QueryLogger::~QueryLogger() {
     // Cooperative shutdown — set the flag, wake the writer, join.
     if (writer_.joinable()) {
         {
-            std::scoped_lock lk{mu_};
+            scoped_lock lk{mu_};
             stopping_.store(true);
         }
         cv_.notify_all();
@@ -220,13 +221,13 @@ void QueryLogger::log(QueryLog record) {
     auto line = to_json_line(record);
 
     if (!cfg_.async) {
-        std::scoped_lock lk{mu_};
+        scoped_lock lk{mu_};
         write_one(line);
         return;
     }
 
     {
-        std::scoped_lock lk{mu_};
+        scoped_lock lk{mu_};
         if (queue_.size() >= cfg_.queue_size) {
             ++dropped_;
             return;
@@ -237,18 +238,18 @@ void QueryLogger::log(QueryLog record) {
 }
 
 void QueryLogger::flush() {
-    std::unique_lock lk{mu_};
+    unique_lock lk{mu_};
     cv_.wait(lk, [this] { return queue_.empty(); });
     stream_.flush();
 }
 
 size_t QueryLogger::dropped_count() const noexcept {
-    std::scoped_lock lk{mu_};
+    scoped_lock lk{mu_};
     return dropped_;
 }
 
 size_t QueryLogger::rotated_count() const noexcept {
-    std::scoped_lock lk{mu_};
+    scoped_lock lk{mu_};
     return rotations_;
 }
 
@@ -262,15 +263,15 @@ void QueryLogger::maybe_rotate() {
 
     // Build a timestamped sibling path:  cloakdns-queries.jsonl
     //                                 → cloakdns-queries.jsonl.20260426T123045Z
-    const auto now = std::chrono::system_clock::now();
-    const auto t = std::chrono::system_clock::to_time_t(now);
+    const auto now = chrono::system_clock::now();
+    const auto t = chrono::system_clock::to_time_t(now);
     std::tm tmv{};
 #ifdef _WIN32
     gmtime_s(&tmv, &t);
 #else
     gmtime_r(&t, &tmv);
 #endif
-    std::array<char, 32> stamp{};
+    array<char, 32> stamp{};
     std::snprintf(stamp.data(), stamp.size(),
                   "%04d%02d%02dT%02d%02d%02dZ",
                   tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
@@ -279,8 +280,8 @@ void QueryLogger::maybe_rotate() {
     auto rotated = cfg_.path;
     rotated += '.';
     rotated += stamp.data();
-    std::error_code ec;
-    std::filesystem::rename(cfg_.path, rotated, ec);
+    error_code ec;
+    fs::rename(cfg_.path, rotated, ec);
     if (ec) {
         std::cerr << "query_log: rotate rename failed (" << ec.message()
                   << ") — staying with existing file" << std::endl;
@@ -299,7 +300,7 @@ void QueryLogger::maybe_rotate() {
 }
 
 void QueryLogger::writer_loop() {
-    std::unique_lock lk{mu_};
+    unique_lock lk{mu_};
     while (!stopping_.load() || !queue_.empty()) {
         cv_.wait(lk, [this] {
             return stopping_.load() || !queue_.empty();
@@ -322,7 +323,7 @@ void QueryLogger::writer_loop() {
     }
 }
 
-void QueryLogger::write_one(const std::string& line) {
+void QueryLogger::write_one(const string& line) {
     if (!stream_) return;
     maybe_rotate();
     if (!stream_) return;

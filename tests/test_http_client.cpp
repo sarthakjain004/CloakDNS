@@ -4,13 +4,14 @@
 // suite network-free.
 
 #include "cloakdns/http_client.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <gtest/gtest.h>
 
 #include <string>
 
 TEST(HttpParse, MinimalOk) {
-    constexpr std::string_view kInput =
+    constexpr string_view kInput =
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: application/dns-message\r\n"
         "Content-Length: 117\r\n"
@@ -29,14 +30,14 @@ TEST(HttpParse, MinimalOk) {
 }
 
 TEST(HttpParse, RejectsMissingDelimiter) {
-    constexpr std::string_view kInput =
+    constexpr string_view kInput =
         "HTTP/1.1 200 OK\r\n"
         "Content-Length: 5\r\n";   // no terminating \r\n
     EXPECT_FALSE(cloak::http::parse_response_head(kInput).has_value());
 }
 
 TEST(HttpParse, RejectsMalformedStatusLine) {
-    constexpr std::string_view kInput =
+    constexpr string_view kInput =
         "HTTP/1.1\r\n"   // no status code, no reason phrase
         "\r\n";
     EXPECT_FALSE(cloak::http::parse_response_head(kInput).has_value());
@@ -46,7 +47,7 @@ TEST(HttpParse, AcceptsExtraBytesPastDelimiter) {
     // post_https_oneshot expects parse to succeed even if the buffer
     // contains body bytes after the head — the parser should only
     // consume the head, leaving the body for the caller.
-    constexpr std::string_view kInput =
+    constexpr string_view kInput =
         "HTTP/1.1 200 OK\r\n"
         "Content-Length: 4\r\n"
         "\r\n"
@@ -57,7 +58,7 @@ TEST(HttpParse, AcceptsExtraBytesPastDelimiter) {
 }
 
 TEST(HttpParse, HeadersAreLowercasedKeys) {
-    constexpr std::string_view kInput =
+    constexpr string_view kInput =
         "HTTP/1.1 404 Not Found\r\n"
         "X-Mixed-Case-Name: yes\r\n"
         "\r\n";
@@ -69,7 +70,7 @@ TEST(HttpParse, HeadersAreLowercasedKeys) {
 }
 
 TEST(HttpParse, TrimsHeaderValueWhitespace) {
-    constexpr std::string_view kInput =
+    constexpr string_view kInput =
         "HTTP/1.1 200 OK\r\n"
         "Content-Length:    42   \r\n"
         "\r\n";
@@ -80,7 +81,7 @@ TEST(HttpParse, TrimsHeaderValueWhitespace) {
 }
 
 TEST(HttpParse, IgnoresMalformedHeaderLine) {
-    constexpr std::string_view kInput =
+    constexpr string_view kInput =
         "HTTP/1.1 200 OK\r\n"
         "no-colon-here\r\n"   // malformed; parser must reject
         "\r\n";
@@ -88,7 +89,7 @@ TEST(HttpParse, IgnoresMalformedHeaderLine) {
 }
 
 TEST(HttpParse, MultipleHeaders) {
-    constexpr std::string_view kInput =
+    constexpr string_view kInput =
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/plain\r\n"
         "Content-Length: 0\r\n"

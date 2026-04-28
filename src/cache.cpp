@@ -1,6 +1,7 @@
 #include "cloakdns/cache.hpp"
 
 #include "cloakdns/dns_parser.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <asio/steady_timer.hpp>
 #include <asio/this_coro.hpp>
@@ -30,9 +31,9 @@ constexpr size_t kTtlBackOffset  = 6;  // RDLEN(2) + TTL(4) back from RDATA
 
 thread_local std::mt19937 jitter_rng{std::random_device{}()};
 
-void collect_section_offsets(std::span<const std::byte> base,
-                             const std::vector<ResourceRecord>& section,
-                             std::vector<size_t>& out) {
+void collect_section_offsets(span<const byte> base,
+                             const vector<ResourceRecord>& section,
+                             vector<size_t>& out) {
     for (const auto& rr : section) {
         if (rr.type == dns_type::OPT) continue;
         const auto rdata_off = static_cast<size_t>(rr.rdata.data() - base.data());
@@ -46,26 +47,26 @@ void collect_section_offsets(std::span<const std::byte> base,
 // SERIAL/REFRESH/RETRY/EXPIRE/MINIMUM (5 × u32). We only need the
 // last 4 bytes of RDATA for MINIMUM — robust against compression in
 // MNAME/RNAME because we read by offset from rdata end.
-std::optional<uint32_t> read_soa_minimum(const ResourceRecord& soa) {
-    if (soa.rdata.size() < 4) return std::nullopt;
+optional<uint32_t> read_soa_minimum(const ResourceRecord& soa) {
+    if (soa.rdata.size() < 4) return nullopt;
     const auto* p = soa.rdata.data() + soa.rdata.size() - 4;
-    return (uint32_t{std::to_integer<uint8_t>(p[0])} << 24) |
-           (uint32_t{std::to_integer<uint8_t>(p[1])} << 16) |
-           (uint32_t{std::to_integer<uint8_t>(p[2])} <<  8) |
-            uint32_t{std::to_integer<uint8_t>(p[3])};
+    return (uint32_t{to_integer<uint8_t>(p[0])} << 24) |
+           (uint32_t{to_integer<uint8_t>(p[1])} << 16) |
+           (uint32_t{to_integer<uint8_t>(p[2])} <<  8) |
+            uint32_t{to_integer<uint8_t>(p[3])};
 }
 
 } // namespace
 
 size_t CacheKeyHash::operator()(const CacheKey& k) const noexcept {
-    size_t h = std::hash<std::string>{}(k.qname);
+    size_t h = std::hash<string>{}(k.qname);
     h ^= std::hash<uint16_t>{}(k.qtype)  + 0x9e3779b9 + (h << 6) + (h >> 2);
     h ^= std::hash<uint16_t>{}(k.qclass) + 0x9e3779b9 + (h << 6) + (h >> 2);
     return h;
 }
 
-std::optional<CacheKey> make_cache_key(const DnsMessage& msg) {
-    if (msg.questions.size() != 1) return std::nullopt;
+optional<CacheKey> make_cache_key(const DnsMessage& msg) {
+    if (msg.questions.size() != 1) return nullopt;
     return CacheKey{
         .qname  = msg.questions[0].qname,
         .qtype  = msg.questions[0].qtype,
@@ -73,15 +74,15 @@ std::optional<CacheKey> make_cache_key(const DnsMessage& msg) {
     };
 }
 
-std::chrono::seconds compute_cache_ttl(const DnsMessage& response) {
+chrono::seconds compute_cache_ttl(const DnsMessage& response) {
     if (response.header.rcode == kRcodeServFail ||
         response.header.rcode == kRcodeNotImp) {
-        return std::chrono::seconds{0};
+        return chrono::seconds{0};
     }
 
     uint32_t min_ttl = std::numeric_limits<uint32_t>::max();
     bool saw_any = false;
-    auto scan = [&](const std::vector<ResourceRecord>& section) {
+    auto scan = [&](const vector<ResourceRecord>& section) {
         for (const auto& rr : section) {
             if (rr.type == dns_type::OPT) continue;
             min_ttl = std::min(min_ttl, rr.ttl);
@@ -91,7 +92,7 @@ std::chrono::seconds compute_cache_ttl(const DnsMessage& response) {
     scan(response.answers);
     scan(response.authority);
 
-    if (!saw_any || min_ttl == 0) return std::chrono::seconds{0};
+    if (!saw_any || min_ttl == 0) return chrono::seconds{0};
 
     // RFC 2308: for negative responses (NXDOMAIN or empty answer with
     // SOA in authority), cap the cache lifetime by SOA.MINIMUM. The
@@ -113,16 +114,16 @@ std::chrono::seconds compute_cache_ttl(const DnsMessage& response) {
         // NXDOMAIN for years (MINIMUM is a uint32 — up to ~136 years).
         constexpr uint32_t kRfc2308NegativeCacheCeiling = 86400;
         min_ttl = std::min(min_ttl, kRfc2308NegativeCacheCeiling);
-        if (min_ttl == 0) return std::chrono::seconds{0};
+        if (min_ttl == 0) return chrono::seconds{0};
     }
 
-    return std::chrono::seconds{min_ttl};
+    return chrono::seconds{min_ttl};
 }
 
-std::vector<size_t>
-collect_ttl_offsets(std::span<const std::byte> response_bytes,
+vector<size_t>
+collect_ttl_offsets(span<const byte> response_bytes,
                     const DnsMessage& parsed) {
-    std::vector<size_t> offsets;
+    vector<size_t> offsets;
     offsets.reserve(parsed.answers.size()
                   + parsed.authority.size()
                   + parsed.additional.size());
@@ -132,13 +133,13 @@ collect_ttl_offsets(std::span<const std::byte> response_bytes,
     return offsets;
 }
 
-void rewrite_ttls(std::span<std::byte> response_bytes,
-                  const std::vector<size_t>& offsets,
+void rewrite_ttls(span<byte> response_bytes,
+                  const vector<size_t>& offsets,
                   uint32_t ttl) {
-    const auto b0 = std::byte{static_cast<uint8_t>((ttl >> 24) & 0xff)};
-    const auto b1 = std::byte{static_cast<uint8_t>((ttl >> 16) & 0xff)};
-    const auto b2 = std::byte{static_cast<uint8_t>((ttl >>  8) & 0xff)};
-    const auto b3 = std::byte{static_cast<uint8_t>( ttl        & 0xff)};
+    const auto b0 = byte{static_cast<uint8_t>((ttl >> 24) & 0xff)};
+    const auto b1 = byte{static_cast<uint8_t>((ttl >> 16) & 0xff)};
+    const auto b2 = byte{static_cast<uint8_t>((ttl >>  8) & 0xff)};
+    const auto b3 = byte{static_cast<uint8_t>( ttl        & 0xff)};
     for (size_t off : offsets) {
         if (off + 4 > response_bytes.size()) continue;  // defensive; should never trip
         response_bytes[off]     = b0;
@@ -148,12 +149,12 @@ void rewrite_ttls(std::span<std::byte> response_bytes,
     }
 }
 
-asio::awaitable<void> apply_jitter(std::chrono::milliseconds max_jitter) {
+asio::awaitable<void> apply_jitter(chrono::milliseconds max_jitter) {
     if (max_jitter.count() <= 0) co_return;
 
     std::uniform_int_distribution<int> dist(
         0, static_cast<int>(max_jitter.count()));
-    const auto delay = std::chrono::milliseconds{dist(jitter_rng)};
+    const auto delay = chrono::milliseconds{dist(jitter_rng)};
     if (delay.count() == 0) co_return;
 
     auto exec = co_await asio::this_coro::executor;
@@ -171,23 +172,23 @@ DnsCache::DnsCache(Config cfg) : cfg_(cfg) {
 
 DnsCache::~DnsCache() {
     {
-        std::scoped_lock lk{shutdown_mu_};
+        scoped_lock lk{shutdown_mu_};
         stopping_.store(true);
     }
     shutdown_cv_.notify_all();
     if (sweeper_.joinable()) sweeper_.join();
 }
 
-void DnsCache::insert(CacheKey key, std::vector<std::byte> response,
-                      const DnsMessage& parsed, std::chrono::seconds ttl) {
+void DnsCache::insert(CacheKey key, vector<byte> response,
+                      const DnsMessage& parsed, chrono::seconds ttl) {
     if (ttl.count() <= 0) return;
 
     Entry e;
     e.ttl_offsets = collect_ttl_offsets(response, parsed);
-    e.expires_at  = std::chrono::steady_clock::now() + ttl;
+    e.expires_at  = chrono::steady_clock::now() + ttl;
     e.response    = std::move(response);
 
-    std::unique_lock lk{mu_};
+    unique_lock lk{mu_};
 
     // Replace existing entry: drop its LRU node first.
     if (auto existing = map_.find(key); existing != map_.end()) {
@@ -202,7 +203,7 @@ void DnsCache::insert(CacheKey key, std::vector<std::byte> response,
 
     e.lru_it = lru_.insert(lru_.end(), key);  // back = MRU
     map_.emplace(std::move(key), std::move(e));
-    inserts_.fetch_add(1, std::memory_order_relaxed);
+    inserts_.fetch_add(1, memory_order_relaxed);
 }
 
 void DnsCache::evict_one_locked() {
@@ -210,57 +211,57 @@ void DnsCache::evict_one_locked() {
     auto victim_it = map_.find(lru_.front());
     lru_.pop_front();
     if (victim_it != map_.end()) map_.erase(victim_it);
-    lru_evictions_.fetch_add(1, std::memory_order_relaxed);
+    lru_evictions_.fetch_add(1, memory_order_relaxed);
 }
 
-std::optional<std::vector<std::byte>>
+optional<vector<byte>>
 DnsCache::lookup(const CacheKey& key, uint16_t client_id) {
-    const auto now = std::chrono::steady_clock::now();
+    const auto now = chrono::steady_clock::now();
 
-    std::vector<std::byte> copy;
-    std::vector<size_t> offsets;
-    std::chrono::seconds remaining{0};
+    vector<byte> copy;
+    vector<size_t> offsets;
+    chrono::seconds remaining{0};
     {
         // Need exclusive lock because we mutate the LRU list on hit.
-        std::unique_lock lk{mu_};
+        unique_lock lk{mu_};
         const auto it = map_.find(key);
         if (it == map_.end()) {
-            misses_.fetch_add(1, std::memory_order_relaxed);
-            return std::nullopt;
+            misses_.fetch_add(1, memory_order_relaxed);
+            return nullopt;
         }
         if (it->second.expires_at <= now) {
             // Expired — drop now so the next miss isn't spent walking past it.
             lru_.erase(it->second.lru_it);
             map_.erase(it);
-            misses_.fetch_add(1, std::memory_order_relaxed);
-            return std::nullopt;
+            misses_.fetch_add(1, memory_order_relaxed);
+            return nullopt;
         }
 
         copy    = it->second.response;
         offsets = it->second.ttl_offsets;
-        remaining = std::chrono::duration_cast<std::chrono::seconds>(
+        remaining = chrono::duration_cast<chrono::seconds>(
             it->second.expires_at - now);
         // Promote to MRU end. splice is O(1) with the iterator we stored.
         lru_.splice(lru_.end(), lru_, it->second.lru_it);
     }
 
-    hits_.fetch_add(1, std::memory_order_relaxed);
+    hits_.fetch_add(1, memory_order_relaxed);
 
     const auto ttl = static_cast<uint32_t>(
         std::min<int64_t>(remaining.count(),
                           std::numeric_limits<uint32_t>::max()));
-    rewrite_ttls(std::span<std::byte>{copy}, offsets, ttl);
+    rewrite_ttls(span<byte>{copy}, offsets, ttl);
 
     if (copy.size() >= 2) {
-        copy[0] = std::byte{static_cast<uint8_t>(client_id >> 8)};
-        copy[1] = std::byte{static_cast<uint8_t>(client_id & 0xff)};
+        copy[0] = byte{static_cast<uint8_t>(client_id >> 8)};
+        copy[1] = byte{static_cast<uint8_t>(client_id & 0xff)};
     }
     return copy;
 }
 
 size_t DnsCache::sweep_expired() {
-    const auto now = std::chrono::steady_clock::now();
-    std::unique_lock lk{mu_};
+    const auto now = chrono::steady_clock::now();
+    unique_lock lk{mu_};
     size_t n = 0;
     for (auto it = map_.begin(); it != map_.end();) {
         if (it->second.expires_at <= now) {
@@ -271,7 +272,7 @@ size_t DnsCache::sweep_expired() {
             ++it;
         }
     }
-    if (n) expired_sweeps_.fetch_add(n, std::memory_order_relaxed);
+    if (n) expired_sweeps_.fetch_add(n, memory_order_relaxed);
     return n;
 }
 
@@ -282,16 +283,16 @@ size_t DnsCache::size() const {
 
 DnsCache::Stats DnsCache::stats() const noexcept {
     return {
-        .hits            = hits_.load(std::memory_order_relaxed),
-        .misses          = misses_.load(std::memory_order_relaxed),
-        .inserts         = inserts_.load(std::memory_order_relaxed),
-        .lru_evictions   = lru_evictions_.load(std::memory_order_relaxed),
-        .expired_sweeps  = expired_sweeps_.load(std::memory_order_relaxed),
+        .hits            = hits_.load(memory_order_relaxed),
+        .misses          = misses_.load(memory_order_relaxed),
+        .inserts         = inserts_.load(memory_order_relaxed),
+        .lru_evictions   = lru_evictions_.load(memory_order_relaxed),
+        .expired_sweeps  = expired_sweeps_.load(memory_order_relaxed),
     };
 }
 
 void DnsCache::sweeper_loop() {
-    std::unique_lock lk{shutdown_mu_};
+    unique_lock lk{shutdown_mu_};
     while (!stopping_.load()) {
         shutdown_cv_.wait_for(lk, cfg_.sweep_interval,
                               [this] { return stopping_.load(); });
