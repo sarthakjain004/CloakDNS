@@ -90,10 +90,14 @@ UpstreamForwarder::UpstreamForwarder(asio::io_context& ctx, Config cfg)
         if (cfg_.tcp_servers.empty())
             throw std::invalid_argument{"UpstreamForwarder: no TCP servers for DoT"};
         tls_cfg_ = std::make_unique<tls::ContextConfig>();
-        tls_cfg_->spki_pins            = cfg_.spki_pins;
-        tls_cfg_->servername           = cfg_.servername;
-        tls_cfg_->ech_outer_servername = cfg_.ech_outer_servername;
-        tls_cfg_->ech_config_list      = cfg_.ech_config_list;
+        tls_cfg_->spki_pins  = cfg_.spki_pins;
+        tls_cfg_->servername = cfg_.servername;
+        tls_cfg_->ech.store(tls::EchConfig::Snapshot{
+            .bytes = cfg_.ech_config_list.empty()
+                ? nullptr
+                : std::make_shared<const std::vector<std::byte>>(cfg_.ech_config_list),
+            .outer_servername = cfg_.ech_outer_servername,
+        });
         tls_ctx_ = std::make_unique<tls::Context>(*tls_cfg_);
         break;
       case Protocol::Doh:
@@ -102,10 +106,14 @@ UpstreamForwarder::UpstreamForwarder(asio::io_context& ctx, Config cfg)
         if (cfg_.servername.empty())
             throw std::invalid_argument{"UpstreamForwarder: DoH requires servername (Host header)"};
         tls_cfg_ = std::make_unique<tls::ContextConfig>();
-        tls_cfg_->spki_pins            = cfg_.spki_pins;
-        tls_cfg_->servername           = cfg_.servername;
-        tls_cfg_->ech_outer_servername = cfg_.ech_outer_servername;
-        tls_cfg_->ech_config_list      = cfg_.ech_config_list;
+        tls_cfg_->spki_pins  = cfg_.spki_pins;
+        tls_cfg_->servername = cfg_.servername;
+        tls_cfg_->ech.store(tls::EchConfig::Snapshot{
+            .bytes = cfg_.ech_config_list.empty()
+                ? nullptr
+                : std::make_shared<const std::vector<std::byte>>(cfg_.ech_config_list),
+            .outer_servername = cfg_.ech_outer_servername,
+        });
         tls_ctx_ = std::make_unique<tls::Context>(*tls_cfg_);
         break;
     }
