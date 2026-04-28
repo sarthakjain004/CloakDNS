@@ -58,9 +58,41 @@ class ParseAdblockTests(unittest.TestCase):
     def test_element_hiding_dropped(self):
         self.assertEqual(list(ub.parse_adblock("example.com##.ad-banner\n")), [])
 
-    def test_wildcard_stripped(self):
-        self.assertEqual(list(ub.parse_adblock("||*.cdn.example^\n")),
-                         ["cdn.example"])
+    def test_wildcard_prefix_dropped(self):
+        # Adblock semantics for `||*.cdn.example^` require at least one
+        # subdomain label — the apex itself shouldn't match. Stripping
+        # the `*` to produce a bare `cdn.example` rule lets CloakDNS's
+        # suffix matcher match the apex too, which is wrong. Drop these.
+        self.assertEqual(list(ub.parse_adblock("||*.cdn.example^\n")), [])
+        self.assertEqual(list(ub.parse_adblock("||.cdn.example^\n")), [])
+
+    def test_path_restricted_dropped(self):
+        # `||twitter.com/i/jot$third-party` blocks only the /i/jot
+        # endpoint; reducing to `twitter.com` blocks the whole site.
+        self.assertEqual(
+            list(ub.parse_adblock("||twitter.com/i/jot$third-party\n")), [])
+        self.assertEqual(
+            list(ub.parse_adblock("||twitter.com/i/jot\n")), [])
+
+    def test_path_after_caret_dropped(self):
+        # `||twitter.com^*/log.json` is a path filter applied after the
+        # host separator. Same problem class as path-restricted rules.
+        self.assertEqual(
+            list(ub.parse_adblock("||twitter.com^*/log.json\n")), [])
+
+    def test_options_after_caret_kept(self):
+        # `||domain^$opts` is option-only (no path filter) — keep.
+        self.assertEqual(
+            list(ub.parse_adblock("||tracker.foo^$third-party,domain=~tracker.foo\n")),
+            ["tracker.foo"])
+
+    def test_never_block_filter_at_merge(self):
+        # NEVER_BLOCK is a safety net at merge time, not parse time —
+        # parse_adblock still emits the candidate. The filter runs in
+        # merge() against the union set.
+        self.assertIn("google.com", ub.NEVER_BLOCK)
+        self.assertIn("googlevideo.com", ub.NEVER_BLOCK)
+        self.assertIn("visualstudio.com", ub.NEVER_BLOCK)
 
 
 class ParsePlainTests(unittest.TestCase):
