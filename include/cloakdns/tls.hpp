@@ -5,8 +5,10 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
+#include <cstddef>
 #include <memory>
 #include <optional>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -18,6 +20,55 @@ namespace cloak::tls {
 // SubjectPublicKeyInfo field (per X.509 — the public key plus its alg id).
 // Throws std::runtime_error on encode failure.
 std::string compute_spki_pin(X509* cert);
+
+// Live-mutable holder for the ECH parameters. Wraps the ECHConfigList
+// bytes + outer SNI behind a shared_mutex so retry-config handling
+// (Phase 1) and SIGHUP reload can swap the bytes in atomically without
+// rebuilding the surrounding tls::Context. The mutex is `mutable` so a
+// `const ContextConfig&` (which is what configure_ssl_for_connection
+// takes, and what the verify_callback dereferences from ex_data) can
+// still load the current snapshot.
+//
+// Pattern matches main.cpp's BlocklistPtr / g_blocklist_mu. Reads grab a
+// shared_lock and copy the snapshot (cheap shared_ptr ref-bump);
+// stores grab a unique_lock and swap.
+class EchConfig {
+public:
+    struct Snapshot {
+        // nullptr or empty vector → ECH disabled for this connection.
+        // Held as shared_ptr so a swap doesn't invalidate snapshots
+        // already loaded by in-flight handshakes.
+        std::shared_ptr<const std::vector<std::byte>> bytes;
+        // Cleartext outer SNI (decoy hostname). Empty → let OpenSSL
+        // use the public_name embedded in the ECHConfigList.
+        std::string outer_servername;
+    };
+
+    EchConfig() = default;
+    EchConfig(const EchConfig&) = delete;
+    EchConfig& operator=(const EchConfig&) = delete;
+    EchConfig(EchConfig&&) = delete;
+    EchConfig& operator=(EchConfig&&) = delete;
+
+    Snapshot load() const {
+        std::shared_lock lk{mu_};
+        return state_;
+    }
+
+    void store(Snapshot s) {
+        std::unique_lock lk{mu_};
+        state_ = std::move(s);
+    }
+
+    bool enabled() const {
+        std::shared_lock lk{mu_};
+        return state_.bytes && !state_.bytes->empty();
+    }
+
+private:
+    mutable std::shared_mutex mu_;
+    Snapshot                  state_;
+};
 
 struct ContextConfig {
     // Accept any pin in this set. Empty disables pinning (chain validation
@@ -31,18 +82,21 @@ struct ContextConfig {
     // when the upstream is reached by IP literal.
     std::string servername;
 
-    // ECH ClientHello outer SNI (decoy). Empty when ECH is disabled. When
-    // set, this is the hostname an on-path observer sees in the
-    // ClientHello; the real SNI travels encrypted inside the ECH
-    // extension. Typical: a CDN-managed alias like "cloudflare-ech.com".
-    std::string ech_outer_servername;
+    // Encrypted Client Hello (RFC 9849). Empty / disabled when the build
+    // doesn't have CLOAKDNS_HAVE_ECH or the user didn't configure
+    // upstream.ech_enabled. Mutable at runtime via .store() so retry-
+    // configs (RFC 9849 §6.1.6) and SIGHUP reload can swap fresh bytes.
+    EchConfig ech;
 
-    // Binary ECHConfigList (RFC 9849). Empty disables ECH. When non-empty
-    // and the build was compiled with CLOAKDNS_HAVE_ECH (OpenSSL 4.0+),
-    // configure_ssl_for_connection() turns on ECH for the handshake.
-    // Unused on builds without ECH support, even if populated — silently
-    // falls back to plain SNI rather than failing closed.
-    std::vector<std::byte> ech_config_list;
+    // Default-constructible so callers can populate field-by-field. Copy
+    // and move are deleted because of the shared_mutex inside `ech` —
+    // the codebase always builds ContextConfig in place inside a
+    // unique_ptr (see upstream.cpp).
+    ContextConfig() = default;
+    ContextConfig(const ContextConfig&) = delete;
+    ContextConfig& operator=(const ContextConfig&) = delete;
+    ContextConfig(ContextConfig&&) = delete;
+    ContextConfig& operator=(ContextConfig&&) = delete;
 };
 
 // Wraps an asio::ssl::context (which owns the underlying SSL_CTX*) with
@@ -84,6 +138,28 @@ bool configure_ssl_for_connection(SSL* ssl,
 // CLOAKDNS_ECH=ON). Use to fail config validation early when the user
 // asks for ECH but the binary can't deliver it.
 bool ech_supported() noexcept;
+
+// Categorised result of a TLS handshake's ECH state, derived from
+// SSL_ech_get1_status. Non-ECH builds always return NotTried.
+enum class EchStatus {
+    NotTried,    // ECH wasn't configured for this connection
+    Greased,     // sent GREASE ECH (Phase 3) — observer can't tell from real
+    Success,     // ECH ran end-to-end and the inner ClientHello was used
+    FailedRetry, // server rejected ECH AND returned retry_configs (RFC 9849
+                 //   §6.1.6) — caller should pull fresh bytes via
+                 //   ech_retry_config and re-attempt the handshake
+    Failed,      // some other ECH-related failure (no retry signal)
+};
+
+// Inspect ECH state on a handshaken (or failed-to-handshake) SSL*. Safe to
+// call before async_handshake completes — returns NotTried in that case.
+EchStatus ech_status(SSL* ssl) noexcept;
+
+// Pull the server-supplied retry_configs (fresh ECHConfigList bytes) when
+// ech_status() returned FailedRetry. Returns nullopt when no retry config
+// is available, the build has no ECH support, or OpenSSL refused. The
+// returned bytes are a copy — OpenSSL's heap allocation is freed inside.
+std::optional<std::vector<std::byte>> ech_retry_config(SSL* ssl) noexcept;
 
 // Decode a base64 string (with or without "=" padding; whitespace
 // ignored). Returns nullopt on any invalid character or wrong length.

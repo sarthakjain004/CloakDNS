@@ -1,13 +1,19 @@
 #include "cloakdns/tls.hpp"
 
+#include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
+
+#ifdef CLOAKDNS_HAVE_ECH
+#include <openssl/ech.h>
+#endif
 
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -128,7 +134,12 @@ bool configure_ssl_for_connection(SSL* ssl,
     if (!ssl || real_sni.empty()) return false;
 
 #ifdef CLOAKDNS_HAVE_ECH
-    if (!cfg.ech_config_list.empty()) {
+    // Snapshot once: the underlying state can be swapped by SIGHUP /
+    // retry-config handling between the load() and the SSL_* calls
+    // below. The snapshot's shared_ptr keeps the bytes alive even if a
+    // concurrent store() replaces the holder.
+    const auto ech = cfg.ech.load();
+    if (ech.bytes && !ech.bytes->empty()) {
         // Inner SNI: real hostname; cert verification matches against this
         // post-handshake. Goes inside the ECH-encrypted ClientHello.
         if (SSL_set_tlsext_host_name(ssl, real_sni.c_str()) != 1) {
@@ -143,18 +154,17 @@ bool configure_ssl_for_connection(SSL* ssl,
         // outer-name validator inside OpenSSL has a config to validate
         // against. Order matters in OpenSSL 4.0+.
         const auto* bytes = reinterpret_cast<const unsigned char*>(
-            cfg.ech_config_list.data());
-        if (SSL_set1_ech_config_list(ssl, bytes,
-                                     cfg.ech_config_list.size()) != 1) {
+            ech.bytes->data());
+        if (SSL_set1_ech_config_list(ssl, bytes, ech.bytes->size()) != 1) {
             ERR_print_errors_fp(stderr);
             return false;
         }
         // Outer SNI (cleartext): the decoy. When unset, OpenSSL uses the
         // public_name embedded in the ECHConfigList. The third arg is the
         // 4.0-introduced no_outer flag — 0 to honor our explicit name.
-        if (!cfg.ech_outer_servername.empty()) {
+        if (!ech.outer_servername.empty()) {
             if (SSL_ech_set1_outer_server_name(ssl,
-                    cfg.ech_outer_servername.c_str(), 0) != 1) {
+                    ech.outer_servername.c_str(), 0) != 1) {
                 ERR_print_errors_fp(stderr);
                 return false;
             }
@@ -167,6 +177,50 @@ bool configure_ssl_for_connection(SSL* ssl,
     if (SSL_set_tlsext_host_name(ssl, real_sni.c_str()) != 1) return false;
     if (SSL_set1_host(ssl, real_sni.c_str()) != 1) return false;
     return true;
+}
+
+EchStatus ech_status(SSL* ssl) noexcept {
+#ifdef CLOAKDNS_HAVE_ECH
+    if (!ssl) return EchStatus::NotTried;
+    char* inner = nullptr;
+    char* outer = nullptr;
+    const int rc = SSL_ech_get1_status(ssl, &inner, &outer);
+    if (inner) OPENSSL_free(inner);
+    if (outer) OPENSSL_free(outer);
+    switch (rc) {
+        case SSL_ECH_STATUS_SUCCESS:               return EchStatus::Success;
+        case SSL_ECH_STATUS_GREASE:
+        case SSL_ECH_STATUS_GREASE_ECH:            return EchStatus::Greased;
+        case SSL_ECH_STATUS_FAILED_ECH:
+        case SSL_ECH_STATUS_FAILED_ECH_BAD_NAME:   return EchStatus::FailedRetry;
+        case SSL_ECH_STATUS_NOT_TRIED:
+        case SSL_ECH_STATUS_NOT_CONFIGURED:        return EchStatus::NotTried;
+        default:                                   return EchStatus::Failed;
+    }
+#else
+    (void)ssl;
+    return EchStatus::NotTried;
+#endif
+}
+
+std::optional<std::vector<std::byte>> ech_retry_config(SSL* ssl) noexcept {
+#ifdef CLOAKDNS_HAVE_ECH
+    if (!ssl) return std::nullopt;
+    unsigned char* p = nullptr;
+    std::size_t    len = 0;
+    const int rc = SSL_ech_get1_retry_config(ssl, &p, &len);
+    if (rc != 1 || !p || len == 0) {
+        if (p) OPENSSL_free(p);
+        return std::nullopt;
+    }
+    std::vector<std::byte> out(len);
+    std::memcpy(out.data(), p, len);
+    OPENSSL_free(p);
+    return out;
+#else
+    (void)ssl;
+    return std::nullopt;
+#endif
 }
 
 std::optional<std::vector<std::byte>> base64_decode(std::string_view input) {

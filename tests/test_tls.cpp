@@ -179,3 +179,74 @@ TEST(TlsEch, EchSupportedReturnsBuildFlag) {
     EXPECT_FALSE(supported);
 #endif
 }
+
+// --- EchConfig load/store invariants ----------------------------------
+//
+// The wrapper must (a) start empty, (b) round-trip a snapshot, (c) keep
+// readers' shared_ptr snapshots alive across a subsequent store(), and
+// (d) report enabled() correctly for null/empty/non-empty bytes.
+
+TEST(TlsEchConfig, DefaultStateIsDisabled) {
+    cloak::tls::EchConfig cfg;
+    EXPECT_FALSE(cfg.enabled());
+    auto snap = cfg.load();
+    EXPECT_EQ(snap.bytes, nullptr);
+    EXPECT_TRUE(snap.outer_servername.empty());
+}
+
+TEST(TlsEchConfig, StoreThenLoadRoundTrips) {
+    cloak::tls::EchConfig cfg;
+    auto bytes = std::make_shared<const std::vector<std::byte>>(
+        std::vector<std::byte>{std::byte{0xfe}, std::byte{0x0d}, std::byte{0x42}});
+    cfg.store({.bytes = bytes, .outer_servername = "cover.example"});
+
+    EXPECT_TRUE(cfg.enabled());
+    auto snap = cfg.load();
+    ASSERT_NE(snap.bytes, nullptr);
+    ASSERT_EQ(snap.bytes->size(), 3u);
+    EXPECT_EQ(std::to_integer<std::uint8_t>((*snap.bytes)[0]), 0xfeu);
+    EXPECT_EQ(snap.outer_servername, "cover.example");
+}
+
+TEST(TlsEchConfig, EmptyVectorReportsDisabled) {
+    cloak::tls::EchConfig cfg;
+    cfg.store({.bytes = std::make_shared<const std::vector<std::byte>>(),
+               .outer_servername = ""});
+    EXPECT_FALSE(cfg.enabled());
+}
+
+TEST(TlsEchConfig, OldSnapshotSurvivesSwap) {
+    // The whole point of the shared_ptr indirection: an in-flight
+    // handshake holds a snapshot taken before a SIGHUP swap, and that
+    // snapshot's bytes must remain valid after the swap.
+    cloak::tls::EchConfig cfg;
+    auto v1 = std::make_shared<const std::vector<std::byte>>(
+        std::vector<std::byte>{std::byte{0xaa}, std::byte{0xbb}});
+    cfg.store({.bytes = v1, .outer_servername = "v1"});
+
+    auto held = cfg.load();        // simulates an in-flight handshake
+
+    auto v2 = std::make_shared<const std::vector<std::byte>>(
+        std::vector<std::byte>{std::byte{0xcc}});
+    cfg.store({.bytes = v2, .outer_servername = "v2"});
+
+    // The previously-loaded snapshot still resolves to v1's bytes.
+    ASSERT_NE(held.bytes, nullptr);
+    ASSERT_EQ(held.bytes->size(), 2u);
+    EXPECT_EQ(std::to_integer<std::uint8_t>((*held.bytes)[0]), 0xaau);
+    EXPECT_EQ(held.outer_servername, "v1");
+
+    // Subsequent reads see v2.
+    auto fresh = cfg.load();
+    ASSERT_EQ(fresh.bytes->size(), 1u);
+    EXPECT_EQ(std::to_integer<std::uint8_t>((*fresh.bytes)[0]), 0xccu);
+    EXPECT_EQ(fresh.outer_servername, "v2");
+}
+
+TEST(TlsEch, StatusOnNullSslIsNotTried) {
+    EXPECT_EQ(cloak::tls::ech_status(nullptr), cloak::tls::EchStatus::NotTried);
+}
+
+TEST(TlsEch, RetryConfigOnNullSslIsNullopt) {
+    EXPECT_FALSE(cloak::tls::ech_retry_config(nullptr).has_value());
+}
