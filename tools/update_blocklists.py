@@ -158,6 +158,18 @@ NEVER_BLOCK: frozenset[str] = frozenset({
     "adobe.com", "www.adobe.com",
     # Content / publishing
     "medium.com", "substack.com",
+    # Backend-as-a-Service / app platforms — every customer is a
+    # subdomain of these apexes, so wildcard-blocking the apex breaks
+    # countless third-party apps the user relies on.
+    "supabase.co", "supabase.com",
+    "firebaseio.com", "appspot.com",  # Firebase realtime DB / GAE apps
+    "vercel.app", "netlify.app", "netlify.com",
+    "herokuapp.com", "fly.dev", "render.com",
+    "railway.app", "deno.dev",
+    "pages.dev", "workers.dev",       # Cloudflare Pages / Workers
+    "azurestaticapps.net",
+    "googleusercontent.com",          # already above; Drive/Sites docs
+    "web.app", "firebaseapp.com",     # Firebase Hosting
 })
 
 

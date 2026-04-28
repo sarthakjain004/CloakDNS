@@ -155,3 +155,23 @@
 # --- Content ---
 0.0.0.0 medium.com
 0.0.0.0 substack.com
+
+# --- Backend-as-a-Service / app platforms (every customer is a
+#     subdomain — wildcard-blocking the apex breaks third-party apps) ---
+0.0.0.0 supabase.co
+0.0.0.0 supabase.com
+0.0.0.0 firebaseio.com
+0.0.0.0 firebaseapp.com
+0.0.0.0 web.app
+0.0.0.0 appspot.com
+0.0.0.0 vercel.app
+0.0.0.0 netlify.app
+0.0.0.0 netlify.com
+0.0.0.0 herokuapp.com
+0.0.0.0 fly.dev
+0.0.0.0 render.com
+0.0.0.0 railway.app
+0.0.0.0 deno.dev
+0.0.0.0 pages.dev
+0.0.0.0 workers.dev
+0.0.0.0 azurestaticapps.net
