@@ -1,0 +1,52 @@
+# Desktop / OS / dev-tool telemetry endpoints — mined from live JSONL
+# of CloakDNS running system-wide on a Windows 11 dev box, 2026-04-28.
+#
+# These are tracker / analytics / telemetry subdomains that slip past
+# the curated tracker tiers (which target the classic ad-tech
+# ecosystem) but that a privacy-conscious user wants blocked. Format
+# is hosts-file ("0.0.0.0 hostname"). Each entry has a one-line note
+# on what it is and why it's blocked.
+
+# --- Microsoft Windows / Office telemetry ---
+# Windows Activity History — feeds the cross-device timeline. Sends a
+# log of apps launched / files opened / web pages visited to MS.
+0.0.0.0 activity.windows.com
+# Office Experimentation & Configuration Service — A/B testing +
+# feature-flag fetches. Carries diagnostic data per opted-in tier.
+0.0.0.0 ecs.office.com
+# Office consent telemetry — reports the user's diagnostic-data
+# consent decision back to MS. Blocking won't break Office, the
+# consent UI just won't refresh from the server.
+0.0.0.0 consent.config.office.com
+# Office click-through measurement endpoint.
+0.0.0.0 measure.office.net
+# Microsoft location inference — backend for geolocation guesses
+# from network signals (Wi-Fi BSSIDs, IPs). Not blocked by default
+# in Windows location-services prefs.
+0.0.0.0 inference.location.live.net
+
+# --- Google ad / personalization endpoints (subdomains under
+#     googleapis.com / google.com that aren't classic doubleclick) ---
+# OneGoogle Personalized Ads — `ogads-pa` is the API path Google's
+# signed-in services hit for ad targeting on Search / YouTube etc.
+0.0.0.0 ogads-pa.clients6.google.com
+# Cookie-intersect measurement — cross-device audience graph
+# computation. The "ck-intersect" prefix is Google's audience-merge
+# pipeline.
+0.0.0.0 ckintersect-pa.googleapis.com
+
+# --- GitHub site analytics ---
+# GitHub's first-party analytics collector. Telemetry from the web
+# UI; not required for git operations or the GitHub API.
+0.0.0.0 collector.github.com
+
+# --- Cloudflare Network Error Logging (NEL) ---
+# RFC 9163 endpoint where NEL-instrumented sites POST connection
+# error reports. Privacy-leaky: the POST body includes the failed
+# URL, IP, and user-agent. Doesn't affect site rendering.
+0.0.0.0 a.nel.cloudflare.com
+
+# --- Third-party SDK telemetry ---
+# PlatinumAI SDK telemetry — "tm-sdk" naming gives away the role.
+# Vendor sells an SDK; this is the metrics-collection backend.
+0.0.0.0 tm-sdk.platinumai.net

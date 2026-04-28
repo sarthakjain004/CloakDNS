@@ -1,5 +1,7 @@
 #pragma once
 
+#include "cloakdns/tls.hpp"
+
 #include <asio/awaitable.hpp>
 #include <asio/io_context.hpp>
 #include <asio/ip/tcp.hpp>
@@ -18,10 +20,13 @@
 
 namespace cloak {
 
-namespace tls {
-class Context;
-struct ContextConfig;
-} // namespace tls
+// Internal: result of one single-shot upstream exchange. Used to plumb
+// ECH state from detail::dot_try_once / detail::doh_try_once back to
+// the forwarder so it can attach status to ForwardResult.
+struct UpstreamReply {
+    std::vector<std::byte> bytes;
+    tls::EchStatus         ech_status{tls::EchStatus::NotTried};
+};
 
 // Result of a successful upstream forward. `upstream` is pre-stringified
 // ("1.1.1.1:53" / "1.1.1.1:853") so the query log can record which server
@@ -29,6 +34,9 @@ struct ContextConfig;
 struct ForwardResult {
     std::vector<std::byte> response;
     std::string            upstream;
+    // ECH state on the answering connection. NotTried for UDP and for
+    // non-ECH builds; otherwise reflects SSL_ech_get1_status.
+    tls::EchStatus         ech_status{tls::EchStatus::NotTried};
 };
 
 class UpstreamForwarder {
@@ -53,6 +61,12 @@ public:
         // replacement.
         std::vector<std::string> spki_pins;
 
+        // PEM file of trusted CAs for upstream chain validation. Empty
+        // falls back to system defaults (and to `cacert.pem` next to the
+        // executable on Windows). Required on Windows when OpenSSL was
+        // built with no compiled-in trust store.
+        std::string ca_file;
+
         // DoH request path. Standard is "/dns-query"; some operators
         // expose alternate paths. Ignored unless protocol == Doh.
         std::string doh_path{"/dns-query"};
@@ -62,6 +76,9 @@ public:
         // TLS handshake runs ECH; otherwise standard SNI.
         std::string            ech_outer_servername;
         std::vector<std::byte> ech_config_list;
+
+        // Send GREASE ECH on non-ECH connections (RFC 9849 §6.2).
+        bool                   ech_grease{false};
 
         std::chrono::milliseconds timeout{2000};
         int                       retries_on_primary{1};
@@ -81,6 +98,10 @@ public:
     forward(std::span<const std::byte> client_query);
 
     Protocol protocol() const noexcept { return cfg_.protocol; }
+
+    // Live TLS context, or nullptr for protocol == Udp. SIGHUP uses this
+    // to swap a fresh ECHConfigList in without rebuilding the forwarder.
+    tls::Context* tls_context() noexcept { return tls_ctx_.get(); }
 
 private:
     asio::awaitable<std::optional<std::vector<std::byte>>>

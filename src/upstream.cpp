@@ -19,7 +19,7 @@ namespace cloak {
 // Forward decls of the protocol-specific single-shot exchanges —
 // implemented in upstream_dot.cpp / upstream_doh.cpp.
 namespace detail {
-asio::awaitable<std::optional<std::vector<std::byte>>>
+asio::awaitable<std::optional<UpstreamReply>>
 dot_try_once(asio::io_context& ctx,
              tls::Context& tls_ctx,
              const asio::ip::tcp::endpoint& server,
@@ -27,7 +27,7 @@ dot_try_once(asio::io_context& ctx,
              std::span<const std::byte> outbound,
              std::chrono::milliseconds timeout);
 
-asio::awaitable<std::optional<std::vector<std::byte>>>
+asio::awaitable<std::optional<UpstreamReply>>
 doh_try_once(asio::io_context& ctx,
              tls::Context& tls_ctx,
              const asio::ip::tcp::endpoint& server,
@@ -90,10 +90,17 @@ UpstreamForwarder::UpstreamForwarder(asio::io_context& ctx, Config cfg)
         if (cfg_.tcp_servers.empty())
             throw std::invalid_argument{"UpstreamForwarder: no TCP servers for DoT"};
         tls_cfg_ = std::make_unique<tls::ContextConfig>();
-        tls_cfg_->spki_pins            = cfg_.spki_pins;
-        tls_cfg_->servername           = cfg_.servername;
-        tls_cfg_->ech_outer_servername = cfg_.ech_outer_servername;
-        tls_cfg_->ech_config_list      = cfg_.ech_config_list;
+        tls_cfg_->spki_pins  = cfg_.spki_pins;
+        tls_cfg_->servername = cfg_.servername;
+        tls_cfg_->ca_file    = cfg_.ca_file;
+        tls_cfg_->ech_grease = cfg_.ech_grease;
+        tls_cfg_->alpn       = tls::HttpAlpn::None;  // DoT is not HTTP-bearing
+        tls_cfg_->ech.store(tls::EchConfig::Snapshot{
+            .bytes = cfg_.ech_config_list.empty()
+                ? nullptr
+                : std::make_shared<const std::vector<std::byte>>(cfg_.ech_config_list),
+            .outer_servername = cfg_.ech_outer_servername,
+        });
         tls_ctx_ = std::make_unique<tls::Context>(*tls_cfg_);
         break;
       case Protocol::Doh:
@@ -102,10 +109,21 @@ UpstreamForwarder::UpstreamForwarder(asio::io_context& ctx, Config cfg)
         if (cfg_.servername.empty())
             throw std::invalid_argument{"UpstreamForwarder: DoH requires servername (Host header)"};
         tls_cfg_ = std::make_unique<tls::ContextConfig>();
-        tls_cfg_->spki_pins            = cfg_.spki_pins;
-        tls_cfg_->servername           = cfg_.servername;
-        tls_cfg_->ech_outer_servername = cfg_.ech_outer_servername;
-        tls_cfg_->ech_config_list      = cfg_.ech_config_list;
+        tls_cfg_->spki_pins  = cfg_.spki_pins;
+        tls_cfg_->servername = cfg_.servername;
+        tls_cfg_->ca_file    = cfg_.ca_file;
+        tls_cfg_->ech_grease = cfg_.ech_grease;
+        // RFC 8484 / 7301: advertise http/1.1 so a real-world DoH
+        // server's ALPN check passes. Cloudflare's DoH endpoint in
+        // particular requires ALPN — without it the handshake fails
+        // with "no application protocol" since 2025-ish.
+        tls_cfg_->alpn       = tls::HttpAlpn::Http1Only;
+        tls_cfg_->ech.store(tls::EchConfig::Snapshot{
+            .bytes = cfg_.ech_config_list.empty()
+                ? nullptr
+                : std::make_shared<const std::vector<std::byte>>(cfg_.ech_config_list),
+            .outer_servername = cfg_.ech_outer_servername,
+        });
         tls_ctx_ = std::make_unique<tls::Context>(*tls_cfg_);
         break;
     }
@@ -207,17 +225,19 @@ UpstreamForwarder::forward_with_source(std::span<const std::byte> client_query) 
             const int attempts = is_primary ? (1 + cfg_.retries_on_primary) : 1;
             is_primary = false;
             for (int a = 0; a < attempts; ++a) {
-                auto resp = co_await detail::dot_try_once(
+                auto reply = co_await detail::dot_try_once(
                     ctx_, *tls_ctx_, server, cfg_.servername, outbound, cfg_.timeout);
-                if (!resp) continue;
-                if (resp->size() < 12) continue;
-                const uint16_t resp_id = read_u16_be(*resp, 0);
+                if (!reply) continue;
+                auto& resp = reply->bytes;
+                if (resp.size() < 12) continue;
+                const uint16_t resp_id = read_u16_be(resp, 0);
                 if (resp_id != our_id) continue;
-                if (!reply_matches_request(client_query, *resp)) continue;
-                write_u16_be(std::span<std::byte>{*resp}, 0, client_id);
+                if (!reply_matches_request(client_query, resp)) continue;
+                write_u16_be(std::span<std::byte>{resp}, 0, client_id);
                 co_return ForwardResult{
-                    .response = std::move(*resp),
-                    .upstream = ep_to_string(server),
+                    .response   = std::move(resp),
+                    .upstream   = ep_to_string(server),
+                    .ech_status = reply->ech_status,
                 };
             }
         }
@@ -231,18 +251,20 @@ UpstreamForwarder::forward_with_source(std::span<const std::byte> client_query) 
             const int attempts = is_primary ? (1 + cfg_.retries_on_primary) : 1;
             is_primary = false;
             for (int a = 0; a < attempts; ++a) {
-                auto resp = co_await detail::doh_try_once(
+                auto reply = co_await detail::doh_try_once(
                     ctx_, *tls_ctx_, server, cfg_.servername, cfg_.doh_path,
                     outbound, cfg_.timeout);
-                if (!resp) continue;
-                if (resp->size() < 12) continue;
-                const uint16_t resp_id = read_u16_be(*resp, 0);
+                if (!reply) continue;
+                auto& resp = reply->bytes;
+                if (resp.size() < 12) continue;
+                const uint16_t resp_id = read_u16_be(resp, 0);
                 if (resp_id != our_id) continue;
-                if (!reply_matches_request(client_query, *resp)) continue;
-                write_u16_be(std::span<std::byte>{*resp}, 0, client_id);
+                if (!reply_matches_request(client_query, resp)) continue;
+                write_u16_be(std::span<std::byte>{resp}, 0, client_id);
                 co_return ForwardResult{
-                    .response = std::move(*resp),
-                    .upstream = ep_to_string(server),
+                    .response   = std::move(resp),
+                    .upstream   = ep_to_string(server),
+                    .ech_status = reply->ech_status,
                 };
             }
         }

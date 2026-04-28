@@ -38,6 +38,14 @@ struct UpstreamConfig {
     // RFC 7469 SPKI pins ("sha256/<base64>"). Empty = chain validation only.
     std::vector<std::string>   spki_pins;
 
+    // PEM file of trusted CA certificates for upstream chain validation.
+    // Required on Windows when the binary is built against an OpenSSL
+    // distribution with no compiled-in trust store (FireDaemon OpenSSL 4
+    // ships zero CA certs). Leave empty on Linux / macOS to use system
+    // defaults; the TLS layer also auto-discovers `cacert.pem` next to
+    // the executable on Windows when this is unset.
+    std::string                ca_file;
+
     // DoH request path. Standard is "/dns-query". Only consulted when
     // protocol = "doh".
     std::string                doh_path{"/dns-query"};
@@ -54,6 +62,21 @@ struct UpstreamConfig {
     bool                       ech_enabled{false};
     std::string                ech_outer_servername;
     std::vector<std::byte>     ech_config_list;
+
+    // Auto-fetch the ECHConfigList from the upstream's HTTPS DNS RR at
+    // startup (and on SIGHUP). When true, ech_config_list_b64 in TOML
+    // becomes a fallback used only if every bootstrap server fails.
+    // The bootstrap query is plain UDP — a one-time cleartext leak that
+    // reveals only the upstream hostname (already in this config).
+    bool                       ech_autobootstrap{false};
+    std::vector<Endpoint>      ech_bootstrap_servers{
+                                  {"1.0.0.1", 53}, {"8.8.8.8", 53}};
+
+    // Send GREASE ECH on connections where real ECH isn't configured
+    // (RFC 9849 §6.2). Off by default — enable when you want this build
+    // to be wire-indistinguishable from an ECH-using client even when
+    // talking to a non-ECH upstream.
+    bool                       ech_grease{false};
 };
 
 struct BlocklistConfig {

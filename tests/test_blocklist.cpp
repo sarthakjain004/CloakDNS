@@ -108,6 +108,57 @@ TEST(Blocklist, Miss) {
     EXPECT_EQ(r.kind, MatchKind::None);
 }
 
+// ---- allow-vs-deny precedence (longest-match-wins) ----
+
+TEST(BlocklistAllowDeny, AllowApexAllowsApex) {
+    Blocklist bl;
+    bl.add_allow_suffix("google.com");
+    EXPECT_FALSE(bl.match("google.com").blocked);
+    EXPECT_FALSE(bl.match("www.google.com").blocked);
+}
+
+TEST(BlocklistAllowDeny, MoreSpecificDenyBeatsApexAllow) {
+    // Real-world case: user allowlists `google.com` so search works,
+    // but a tracker blocklist contains `analytics.google.com` exact.
+    // The longer/more-specific deny rule must win.
+    Blocklist bl;
+    bl.add_allow_suffix("google.com");
+    bl.add_exact("analytics.google.com");
+    EXPECT_FALSE(bl.match("google.com").blocked);
+    EXPECT_FALSE(bl.match("www.google.com").blocked);
+    EXPECT_TRUE(bl.match("analytics.google.com").blocked);
+}
+
+TEST(BlocklistAllowDeny, SubdomainAllowOverridesApexDeny) {
+    // Inverse: blocklist has the apex, allowlist has a specific
+    // subdomain — the more-specific allow wins for that subdomain.
+    Blocklist bl;
+    bl.add_suffix("tracker.com");
+    bl.add_allow_exact("ok.tracker.com");
+    EXPECT_TRUE(bl.match("tracker.com").blocked);
+    EXPECT_TRUE(bl.match("foo.tracker.com").blocked);
+    EXPECT_FALSE(bl.match("ok.tracker.com").blocked);
+}
+
+TEST(BlocklistAllowDeny, EqualLengthAllowWins) {
+    // Same hostname listed in both allow and deny: prefer allow as
+    // the more permissive default.
+    Blocklist bl;
+    bl.add_allow_suffix("example.com");
+    bl.add_suffix("example.com");
+    EXPECT_FALSE(bl.match("example.com").blocked);
+    EXPECT_FALSE(bl.match("foo.example.com").blocked);
+}
+
+TEST(BlocklistAllowDeny, DenySuffixWinsOverShorterAllowSuffix) {
+    Blocklist bl;
+    bl.add_allow_suffix("com");                         // 3 chars
+    bl.add_suffix("ads.example.com");                   // 15 chars
+    EXPECT_TRUE(bl.match("ads.example.com").blocked);
+    EXPECT_TRUE(bl.match("foo.ads.example.com").blocked);
+    EXPECT_FALSE(bl.match("safe.example.com").blocked); // only allow matches
+}
+
 // ---- hosts-file parser ----
 
 TEST(BlocklistHosts, ParsesBasic) {

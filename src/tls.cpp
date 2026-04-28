@@ -1,16 +1,28 @@
 #include "cloakdns/tls.hpp"
 
+#include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
+
+#ifdef CLOAKDNS_HAVE_ECH
+#include <openssl/ech.h>
+#endif
 
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <iostream>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace cloak::tls {
 namespace {
@@ -128,7 +140,12 @@ bool configure_ssl_for_connection(SSL* ssl,
     if (!ssl || real_sni.empty()) return false;
 
 #ifdef CLOAKDNS_HAVE_ECH
-    if (!cfg.ech_config_list.empty()) {
+    // Snapshot once: the underlying state can be swapped by SIGHUP /
+    // retry-config handling between the load() and the SSL_* calls
+    // below. The snapshot's shared_ptr keeps the bytes alive even if a
+    // concurrent store() replaces the holder.
+    const auto ech = cfg.ech.load();
+    if (ech.bytes && !ech.bytes->empty()) {
         // Inner SNI: real hostname; cert verification matches against this
         // post-handshake. Goes inside the ECH-encrypted ClientHello.
         if (SSL_set_tlsext_host_name(ssl, real_sni.c_str()) != 1) {
@@ -143,18 +160,17 @@ bool configure_ssl_for_connection(SSL* ssl,
         // outer-name validator inside OpenSSL has a config to validate
         // against. Order matters in OpenSSL 4.0+.
         const auto* bytes = reinterpret_cast<const unsigned char*>(
-            cfg.ech_config_list.data());
-        if (SSL_set1_ech_config_list(ssl, bytes,
-                                     cfg.ech_config_list.size()) != 1) {
+            ech.bytes->data());
+        if (SSL_set1_ech_config_list(ssl, bytes, ech.bytes->size()) != 1) {
             ERR_print_errors_fp(stderr);
             return false;
         }
         // Outer SNI (cleartext): the decoy. When unset, OpenSSL uses the
         // public_name embedded in the ECHConfigList. The third arg is the
         // 4.0-introduced no_outer flag — 0 to honor our explicit name.
-        if (!cfg.ech_outer_servername.empty()) {
+        if (!ech.outer_servername.empty()) {
             if (SSL_ech_set1_outer_server_name(ssl,
-                    cfg.ech_outer_servername.c_str(), 0) != 1) {
+                    ech.outer_servername.c_str(), 0) != 1) {
                 ERR_print_errors_fp(stderr);
                 return false;
             }
@@ -166,7 +182,73 @@ bool configure_ssl_for_connection(SSL* ssl,
     // ECH disabled or unavailable: standard SNI path.
     if (SSL_set_tlsext_host_name(ssl, real_sni.c_str()) != 1) return false;
     if (SSL_set1_host(ssl, real_sni.c_str()) != 1) return false;
+
+#ifdef CLOAKDNS_HAVE_ECH
+    // RFC 9849 §6.2: when ECH is supported by the build but no real
+    // config is loaded, the client SHOULD emit a GREASE ECH extension
+    // so an on-path observer can't tell us apart from a real-ECH
+    // client. Opt-in via cfg.ech_grease (default off, so the wire
+    // shape doesn't change unless the operator asks).
+    if (cfg.ech_grease) {
+        SSL_set_options(ssl, SSL_OP_ECH_GREASE);
+    }
+#endif
     return true;
+}
+
+EchStatus ech_status(SSL* ssl) noexcept {
+#ifdef CLOAKDNS_HAVE_ECH
+    if (!ssl) return EchStatus::NotTried;
+    char* inner = nullptr;
+    char* outer = nullptr;
+    const int rc = SSL_ech_get1_status(ssl, &inner, &outer);
+    if (inner) OPENSSL_free(inner);
+    if (outer) OPENSSL_free(outer);
+    switch (rc) {
+        case SSL_ECH_STATUS_SUCCESS:               return EchStatus::Success;
+        case SSL_ECH_STATUS_GREASE:
+        case SSL_ECH_STATUS_GREASE_ECH:            return EchStatus::Greased;
+        case SSL_ECH_STATUS_FAILED_ECH:
+        case SSL_ECH_STATUS_FAILED_ECH_BAD_NAME:   return EchStatus::FailedRetry;
+        case SSL_ECH_STATUS_NOT_TRIED:
+        case SSL_ECH_STATUS_NOT_CONFIGURED:        return EchStatus::NotTried;
+        default:                                   return EchStatus::Failed;
+    }
+#else
+    (void)ssl;
+    return EchStatus::NotTried;
+#endif
+}
+
+std::string_view to_string(EchStatus s) noexcept {
+    switch (s) {
+      case EchStatus::Success:     return "success";
+      case EchStatus::Greased:     return "greased";
+      case EchStatus::FailedRetry: return "failed_retry_available";
+      case EchStatus::Failed:      return "failed";
+      case EchStatus::NotTried:    return "not_tried";
+    }
+    return "not_tried";
+}
+
+std::optional<std::vector<std::byte>> ech_retry_config(SSL* ssl) noexcept {
+#ifdef CLOAKDNS_HAVE_ECH
+    if (!ssl) return std::nullopt;
+    unsigned char* p = nullptr;
+    std::size_t    len = 0;
+    const int rc = SSL_ech_get1_retry_config(ssl, &p, &len);
+    if (rc != 1 || !p || len == 0) {
+        if (p) OPENSSL_free(p);
+        return std::nullopt;
+    }
+    std::vector<std::byte> out(len);
+    std::memcpy(out.data(), p, len);
+    OPENSSL_free(p);
+    return out;
+#else
+    (void)ssl;
+    return std::nullopt;
+#endif
 }
 
 std::optional<std::vector<std::byte>> base64_decode(std::string_view input) {
@@ -223,16 +305,123 @@ std::optional<std::vector<std::byte>> base64_decode(std::string_view input) {
     return out;
 }
 
-Context::Context(const ContextConfig& cfg)
+namespace {
+
+#ifdef _WIN32
+// Locate `cacert.pem` next to the running executable so the operator
+// can drop the Mozilla CA bundle alongside cloakdns.exe and have it
+// picked up automatically. Returns empty when the file isn't there.
+std::string discover_windows_ca_file() {
+    std::array<wchar_t, MAX_PATH> buf{};
+    const DWORD n = GetModuleFileNameW(nullptr, buf.data(),
+                                       static_cast<DWORD>(buf.size()));
+    if (n == 0 || n == buf.size()) return {};
+    std::filesystem::path exe{std::wstring{buf.data(), n}};
+    auto candidate = exe.parent_path() / "cacert.pem";
+    std::error_code ec;
+    if (std::filesystem::exists(candidate, ec))
+        return candidate.string();
+    candidate = std::filesystem::current_path(ec) / "cacert.pem";
+    if (!ec && std::filesystem::exists(candidate, ec))
+        return candidate.string();
+    return {};
+}
+#endif
+
+// Wire trust anchors onto `raw`. Explicit ca_file takes priority; on
+// Windows we additionally auto-discover `cacert.pem` next to the
+// executable because OpenSSL 4 distributions for Windows commonly
+// ship without a default trust store and chain validation would
+// otherwise always fail. System defaults (POSIX paths, SSL_CERT_FILE
+// env) are layered on regardless so a configured ca_file augments
+// rather than replaces them.
+void load_trust_anchors(SSL_CTX* raw, const std::string& ca_file) {
+    std::string effective = ca_file;
+#ifdef _WIN32
+    if (effective.empty()) effective = discover_windows_ca_file();
+#endif
+    if (!effective.empty()) {
+        if (SSL_CTX_load_verify_locations(raw, effective.c_str(), nullptr) != 1) {
+            throw std::runtime_error{
+                "tls: SSL_CTX_load_verify_locations(" + effective + ") failed"};
+        }
+        std::cerr << "tls: trust anchors loaded from " << effective << std::endl;
+    }
+    // Always try platform defaults too (no-op on Windows when nothing
+    // is compiled in; SSL_CERT_FILE env var is honoured here).
+    (void)SSL_CTX_set_default_verify_paths(raw);
+}
+
+} // namespace
+
+Context::Context(ContextConfig& cfg)
     : ctx_(asio::ssl::context::tls_client), cfg_(&cfg) {
     init();
     SSL_CTX* raw = ctx_.native_handle();
     SSL_CTX_set_min_proto_version(raw, TLS1_2_VERSION);
-    if (!SSL_CTX_set_default_verify_paths(raw))
-        throw std::runtime_error{"tls: SSL_CTX_set_default_verify_paths failed"};
+    load_trust_anchors(raw, cfg.ca_file);
     SSL_CTX_set_verify(raw, SSL_VERIFY_PEER, verify_callback);
-    SSL_CTX_set_ex_data(raw, g_ex_data_idx.load(std::memory_order_acquire),
-                        const_cast<ContextConfig*>(cfg_));
+    SSL_CTX_set_ex_data(raw, g_ex_data_idx.load(std::memory_order_acquire), cfg_);
+
+    // ALPN: set on the SSL_CTX so every spawned SSL inherits it. The
+    // wire encoding is length-prefixed protocol identifiers per RFC
+    // 7301 — currently only "http/1.1" since DoH speaks HTTP/1.1.
+    if (cfg_->alpn == HttpAlpn::Http1Only) {
+        static const unsigned char kAlpnHttp1[] = {
+            8, 'h', 't', 't', 'p', '/', '1', '.', '1'
+        };
+        // SSL_CTX_set_alpn_protos returns 0 on SUCCESS (inverted).
+        if (SSL_CTX_set_alpn_protos(raw, kAlpnHttp1, sizeof(kAlpnHttp1)) != 0)
+            throw std::runtime_error{"tls: SSL_CTX_set_alpn_protos(http/1.1) failed"};
+    }
+}
+
+std::optional<std::string>
+validate_ech_config_list(std::span<const std::byte> bytes) noexcept {
+#ifdef CLOAKDNS_HAVE_ECH
+    if (bytes.empty()) return std::string{"ECHConfigList is empty"};
+    SSL_CTX* tmp_ctx = SSL_CTX_new(TLS_client_method());
+    if (!tmp_ctx) return std::string{"validate: SSL_CTX_new failed"};
+    SSL* tmp_ssl = SSL_new(tmp_ctx);
+    if (!tmp_ssl) {
+        SSL_CTX_free(tmp_ctx);
+        return std::string{"validate: SSL_new failed"};
+    }
+    const auto* p = reinterpret_cast<const unsigned char*>(bytes.data());
+    const int rc = SSL_set1_ech_config_list(tmp_ssl, p, bytes.size());
+    SSL_free(tmp_ssl);
+    SSL_CTX_free(tmp_ctx);
+    if (rc != 1) {
+        // ERR_get_error / ERR_error_string_n give us the OpenSSL
+        // diagnostic. Drain all errors and return the first.
+        unsigned long err = ERR_get_error();
+        char buf[256] = {0};
+        ERR_error_string_n(err, buf, sizeof(buf));
+        // Drain any remaining errors so they don't pollute later calls.
+        while (ERR_get_error()) {}
+        return std::string{"ECHConfigList rejected by OpenSSL: "} + buf;
+    }
+    return std::nullopt;
+#else
+    (void)bytes;
+    return std::nullopt;
+#endif
+}
+
+bool maybe_apply_ech_retry(Context& ctx, SSL* ssl) {
+    if (ech_status(ssl) != EchStatus::FailedRetry) return false;
+    auto retry = ech_retry_config(ssl);
+    if (!retry) return false;
+    auto& ech = ctx.ech_config();
+    auto current = ech.load();
+    EchConfig::Snapshot fresh;
+    fresh.bytes = std::make_shared<const std::vector<std::byte>>(std::move(*retry));
+    fresh.outer_servername = current.outer_servername;
+    // Server just told us the previous config was stale — stamp the
+    // fresh bytes with "fetched now" so staleness tracking is honest.
+    fresh.fetched_at = std::chrono::system_clock::now();
+    ech.store(std::move(fresh));
+    return true;
 }
 
 } // namespace cloak::tls

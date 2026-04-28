@@ -1,0 +1,283 @@
+# Allowlist for major end-user services that some merged blocklist
+# sources erroneously include. Allowlist takes priority over blocklist.
+# Mirrors NEVER_BLOCK in tools/update_blocklists.py — kept here so users
+# running on an already-generated merged.txt are covered without
+# regenerating it. Hosts-file format: "<placeholder-IP> <hostname>".
+
+# --- Google end-user services ---
+0.0.0.0 google.com
+0.0.0.0 www.google.com
+0.0.0.0 www.google.co.in
+0.0.0.0 google.co.in
+0.0.0.0 accounts.google.com
+0.0.0.0 mail.google.com
+0.0.0.0 drive.google.com
+0.0.0.0 docs.google.com
+0.0.0.0 calendar.google.com
+0.0.0.0 photos.google.com
+0.0.0.0 play.google.com
+0.0.0.0 translate.google.com
+0.0.0.0 maps.google.com
+0.0.0.0 news.google.com
+0.0.0.0 clients2.google.com
+0.0.0.0 clients4.google.com
+0.0.0.0 clients5.google.com
+0.0.0.0 gstatic.com
+0.0.0.0 www.gstatic.com
+0.0.0.0 googleapis.com
+0.0.0.0 content-autofill.googleapis.com
+0.0.0.0 oauthaccountmanager.googleapis.com
+0.0.0.0 optimizationguide-pa.googleapis.com
+0.0.0.0 ckintersect-pa.googleapis.com
+0.0.0.0 update.googleapis.com
+0.0.0.0 safebrowsing.googleapis.com
+0.0.0.0 safebrowsing.google.com
+0.0.0.0 googleusercontent.com
+0.0.0.0 ggpht.com
+0.0.0.0 gvt2.com
+
+# --- YouTube — bare apex blocks break video playback ---
+0.0.0.0 youtube.com
+0.0.0.0 www.youtube.com
+0.0.0.0 m.youtube.com
+0.0.0.0 accounts.youtube.com
+0.0.0.0 studio.youtube.com
+0.0.0.0 ytimg.com
+0.0.0.0 i.ytimg.com
+0.0.0.0 googlevideo.com
+0.0.0.0 youtube-nocookie.com
+
+# --- Code / collaboration ---
+0.0.0.0 github.com
+0.0.0.0 api.github.com
+0.0.0.0 githubusercontent.com
+0.0.0.0 raw.githubusercontent.com
+0.0.0.0 gitlab.com
+0.0.0.0 bitbucket.org
+0.0.0.0 stackoverflow.com
+0.0.0.0 stackexchange.com
+
+# --- Messaging / chat ---
+0.0.0.0 whatsapp.com
+0.0.0.0 web.whatsapp.com
+0.0.0.0 telegram.org
+0.0.0.0 web.telegram.org
+0.0.0.0 signal.org
+0.0.0.0 slack.com
+0.0.0.0 discord.com
+0.0.0.0 discordapp.com
+0.0.0.0 zoom.us
+
+# --- Microsoft / Azure / VS Code (mined from live logs) ---
+0.0.0.0 microsoft.com
+0.0.0.0 www.microsoft.com
+0.0.0.0 live.com
+0.0.0.0 outlook.com
+0.0.0.0 office.com
+0.0.0.0 hotmail.com
+0.0.0.0 onedrive.live.com
+0.0.0.0 teams.microsoft.com
+0.0.0.0 microsoftonline.com
+0.0.0.0 sharepoint.com
+0.0.0.0 xbox.com
+0.0.0.0 visualstudio.com
+0.0.0.0 marketplace.visualstudio.com
+0.0.0.0 dev.azure.com
+0.0.0.0 azure.com
+0.0.0.0 azureedge.net
+0.0.0.0 azurewebsites.net
+0.0.0.0 azurefd.net
+0.0.0.0 trafficmanager.net
+0.0.0.0 cloudapp.net
+0.0.0.0 msn.com
+0.0.0.0 windows.net
+0.0.0.0 nuget.org
+0.0.0.0 code.visualstudio.com
+0.0.0.0 update.code.visualstudio.com
+
+# --- Apple ---
+0.0.0.0 apple.com
+0.0.0.0 www.apple.com
+0.0.0.0 icloud.com
+0.0.0.0 mzstatic.com
+
+# --- CDN apexes — suffix-match would wildcard half the web ---
+0.0.0.0 cloudflare.com
+0.0.0.0 www.cloudflare.com
+0.0.0.0 cloudfront.net
+0.0.0.0 amazonaws.com
+0.0.0.0 s3.amazonaws.com
+0.0.0.0 akamaized.net
+0.0.0.0 akamai.net
+0.0.0.0 akamaihd.net
+0.0.0.0 fastly.net
+0.0.0.0 fastlylb.net
+
+# --- Search engines ---
+0.0.0.0 bing.com
+0.0.0.0 duckduckgo.com
+
+# --- Social ---
+0.0.0.0 twitter.com
+0.0.0.0 x.com
+0.0.0.0 t.co
+0.0.0.0 reddit.com
+0.0.0.0 facebook.com
+0.0.0.0 fbcdn.net
+0.0.0.0 fbsbx.com
+0.0.0.0 instagram.com
+0.0.0.0 cdninstagram.com
+0.0.0.0 linkedin.com
+0.0.0.0 tiktok.com
+0.0.0.0 pinterest.com
+0.0.0.0 tumblr.com
+0.0.0.0 twitch.tv
+0.0.0.0 wikipedia.org
+
+# --- Streaming ---
+0.0.0.0 netflix.com
+0.0.0.0 spotify.com
+
+# --- Payments ---
+0.0.0.0 paypal.com
+0.0.0.0 stripe.com
+0.0.0.0 checkout.stripe.com
+
+# --- Dev / package registries ---
+0.0.0.0 npmjs.com
+0.0.0.0 registry.npmjs.org
+0.0.0.0 pypi.org
+0.0.0.0 files.pythonhosted.org
+0.0.0.0 docker.com
+0.0.0.0 hub.docker.com
+0.0.0.0 adobe.com
+
+# --- Content ---
+0.0.0.0 medium.com
+0.0.0.0 substack.com
+
+# --- Backend-as-a-Service / app platforms (every customer is a
+#     subdomain — wildcard-blocking the apex breaks third-party apps) ---
+0.0.0.0 supabase.co
+0.0.0.0 supabase.com
+0.0.0.0 firebaseio.com
+0.0.0.0 firebaseapp.com
+0.0.0.0 web.app
+0.0.0.0 appspot.com
+0.0.0.0 vercel.app
+0.0.0.0 netlify.app
+0.0.0.0 netlify.com
+0.0.0.0 herokuapp.com
+0.0.0.0 fly.dev
+0.0.0.0 render.com
+0.0.0.0 railway.app
+0.0.0.0 deno.dev
+0.0.0.0 pages.dev
+0.0.0.0 workers.dev
+0.0.0.0 azurestaticapps.net
+
+# --- Public CDNs (wildcard-blocking breaks third-party scripts on
+#     thousands of sites) ---
+0.0.0.0 jsdelivr.net
+0.0.0.0 unpkg.com
+
+# --- Banking / payments ---
+0.0.0.0 americanexpress.com
+0.0.0.0 bankofamerica.com
+0.0.0.0 citi.com
+0.0.0.0 visa.com
+0.0.0.0 wellsfargo.com
+0.0.0.0 revolut.com
+0.0.0.0 binance.com
+
+# --- Retail ---
+0.0.0.0 alibaba.com
+0.0.0.0 aliexpress.com
+0.0.0.0 ebay.com
+0.0.0.0 etsy.com
+0.0.0.0 kroger.com
+0.0.0.0 nike.com
+0.0.0.0 target.com
+0.0.0.0 temu.com
+0.0.0.0 walmart.com
+0.0.0.0 walmart.ca
+0.0.0.0 shopify.com
+
+# --- News ---
+0.0.0.0 bloomberg.com
+0.0.0.0 nytimes.com
+0.0.0.0 wsj.com
+
+# --- Travel ---
+0.0.0.0 booking.com
+0.0.0.0 expedia.com
+0.0.0.0 hotels.com
+
+# --- Streaming / media ---
+0.0.0.0 deezer.com
+0.0.0.0 hulu.com
+0.0.0.0 pandora.com
+0.0.0.0 soundcloud.com
+0.0.0.0 opera.com
+
+# --- Social / community ---
+0.0.0.0 gofundme.com
+0.0.0.0 imgur.com
+0.0.0.0 kickstarter.com
+0.0.0.0 patreon.com
+0.0.0.0 quora.com
+0.0.0.0 messenger.com
+
+# --- Storage / productivity ---
+0.0.0.0 airtable.com
+0.0.0.0 box.com
+0.0.0.0 canva.com
+0.0.0.0 dropbox.com
+0.0.0.0 fastmail.com
+0.0.0.0 figma.com
+
+# --- Asian consumer platforms ---
+0.0.0.0 baidu.com
+0.0.0.0 naver.com
+0.0.0.0 naver.net
+0.0.0.0 qq.com
+0.0.0.0 taobao.com
+0.0.0.0 weibo.com
+0.0.0.0 weibo.cn
+
+# --- Dev / SaaS / corporate ---
+0.0.0.0 adobe.io
+0.0.0.0 akamai.com
+0.0.0.0 behance.net
+0.0.0.0 cisco.com
+0.0.0.0 codecademy.com
+0.0.0.0 coursera.org
+0.0.0.0 deno.com
+0.0.0.0 dribbble.com
+0.0.0.0 github.dev
+0.0.0.0 grafana.net
+0.0.0.0 herokuapp.com
+0.0.0.0 heroku.com
+0.0.0.0 honeycomb.io
+0.0.0.0 kaggle.com
+0.0.0.0 newrelic.com
+0.0.0.0 sumologic.com
+0.0.0.0 udemy.com
+0.0.0.0 unsplash.com
+0.0.0.0 wordpress.com
+
+# --- Apps / logistics ---
+0.0.0.0 dhl.com
+0.0.0.0 ups.com
+0.0.0.0 lyft.com
+0.0.0.0 uber.com
+0.0.0.0 ubereats.com
+
+# --- Stock / images ---
+0.0.0.0 pexels.com
+0.0.0.0 shutterstock.com
+
+# --- Mail (additional) ---
+0.0.0.0 aol.com
+0.0.0.0 yahoo.com
+0.0.0.0 yahoo.net

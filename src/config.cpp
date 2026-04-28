@@ -6,6 +6,7 @@
 #include <toml++/toml.hpp>
 
 #include <charconv>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -104,6 +105,11 @@ UpstreamConfig parse_upstream(const toml::table& t) {
             out.spki_pins.push_back(*s);
         }
     }
+    if (auto v = t["ca_file"].value<std::string>(); v) {
+        if (!v->empty() && !std::filesystem::exists(*v))
+            fail("upstream.ca_file: '" + *v + "' does not exist");
+        out.ca_file = *v;
+    }
     if (auto v = t["doh_path"].value<std::string>(); v) {
         if (v->empty() || v->front() != '/')
             fail("upstream.doh_path: '" + *v + "' must start with '/'");
@@ -122,6 +128,23 @@ UpstreamConfig parse_upstream(const toml::table& t) {
             fail("upstream.ech_config_list_b64: not valid base64");
         }
     }
+    if (auto v = t["ech_autobootstrap"].value<bool>(); v) {
+        out.ech_autobootstrap = *v;
+    }
+    if (auto v = t["ech_grease"].value<bool>(); v) {
+        out.ech_grease = *v;
+    }
+    if (auto arr = t["ech_bootstrap_servers"].as_array()) {
+        out.ech_bootstrap_servers.clear();
+        for (const auto& el : *arr) {
+            auto s = el.value<std::string>();
+            if (!s)
+                fail("upstream.ech_bootstrap_servers: entries must be \"ip:port\" strings");
+            out.ech_bootstrap_servers.push_back(parse_endpoint(*s));
+        }
+        if (out.ech_bootstrap_servers.empty())
+            fail("upstream.ech_bootstrap_servers: must contain at least one entry");
+    }
     if (out.ech_enabled) {
         if (!tls::ech_supported()) {
             fail("upstream.ech_enabled = true but this build was compiled "
@@ -129,10 +152,24 @@ UpstreamConfig parse_upstream(const toml::table& t) {
                  "-DCLOAKDNS_ECH=ON against OpenSSL 4.0+, or unset "
                  "ech_enabled.");
         }
-        if (out.ech_config_list.empty()) {
+        // ech_autobootstrap can fill ech_config_list at startup, so a
+        // missing ech_config_list_b64 is only fatal when bootstrap is
+        // also off.
+        if (out.ech_config_list.empty() && !out.ech_autobootstrap) {
             fail("upstream.ech_enabled = true but ech_config_list_b64 is "
-                 "missing or empty. Provide the ECHConfigList from the "
-                 "upstream's HTTPS DNS record.");
+                 "missing or empty AND ech_autobootstrap is off. Either "
+                 "provide the bytes inline, or set ech_autobootstrap = true "
+                 "to fetch them from the upstream's HTTPS DNS record.");
+        }
+        // Inline bytes get a dry-run validation through OpenSSL's parser
+        // — catch malformed base64-decoded bytes at config load time
+        // instead of on the first connection. Bootstrap-fetched bytes
+        // are validated implicitly when SSL_set1_ech_config_list runs
+        // at handshake time.
+        if (!out.ech_config_list.empty()) {
+            if (auto err = tls::validate_ech_config_list(out.ech_config_list)) {
+                fail("upstream.ech_config_list_b64: " + *err);
+            }
         }
     }
     if ((out.protocol == UpstreamProtocol::Dot || out.protocol == UpstreamProtocol::Doh)

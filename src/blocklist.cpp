@@ -113,7 +113,10 @@ size_t Blocklist::load_allowlist_file(const std::filesystem::path& path) {
 namespace {
 
 // Walk qname's suffixes (qname, then each label-aligned tail) and return
-// an iterator into `set` if any suffix matches; otherwise set.end().
+// an iterator into `set` if any suffix matches; otherwise set.end(). The
+// returned iterator points at the *longest* matching suffix — checking
+// from pos=0 (full qname) outward guarantees we hit the longest one
+// first.
 template <class Set>
 auto find_suffix_match(const Set& set, std::string_view qname) {
     size_t pos = 0;
@@ -139,24 +142,60 @@ bool Blocklist::allowed(std::string_view qname) const {
 MatchResult Blocklist::match(std::string_view qname) const {
     if (qname.empty()) return {};
 
-    // Allowlist wins over any block rule.
-    if (allowed(qname)) return {};
+    // Longest-match-wins between allow and block rules. Without this,
+    // an apex allowlist entry like `google.com` defeats every more-
+    // specific deny rule beneath it (e.g. `analytics.google.com`),
+    // letting trackers through whenever the user allowlists the
+    // user-facing apex.
+    //
+    // Specificity is the rule's hostname length: an exact match for
+    // `analytics.google.com` (20 chars) beats a suffix match for
+    // `google.com` (10 chars). Exact rules are also preferred over
+    // suffix rules of the same length to break ties deterministically.
 
+    // Compute the strongest-matching allow rule (longest hit).
+    std::size_t allow_len = 0;
+    bool allow_exact_hit = false;
+    if (auto it = allow_exact_.find(std::string{qname}); it != allow_exact_.end()) {
+        allow_len = it->size();
+        allow_exact_hit = true;
+    }
+    if (auto it = find_suffix_match(allow_suffix_, qname); it != allow_suffix_.end()) {
+        if (it->size() > allow_len) { allow_len = it->size(); allow_exact_hit = false; }
+    }
+
+    // Compute the strongest-matching deny rule (longest hit).
+    MatchResult deny{};
+    std::size_t deny_len = 0;
     if (auto it = exact_.find(std::string{qname}); it != exact_.end()) {
-        return {true, *it, MatchKind::Exact};
+        deny_len = it->size();
+        deny = {true, *it, MatchKind::Exact};
     }
-
     if (auto it = find_suffix_match(suffix_, qname); it != suffix_.end()) {
-        return {true, *it, MatchKind::Suffix};
+        if (it->size() > deny_len ||
+            (it->size() == deny_len && deny.kind != MatchKind::Exact)) {
+            deny_len = it->size();
+            deny = {true, *it, MatchKind::Suffix};
+        }
     }
-
-    for (const auto& [pattern, rx] : regex_) {
-        if (std::regex_search(std::string{qname}, rx)) {
-            return {true, pattern, MatchKind::Regex};
+    if (deny_len == 0) {
+        for (const auto& [pattern, rx] : regex_) {
+            if (std::regex_search(std::string{qname}, rx)) {
+                deny_len = pattern.size();
+                deny = {true, pattern, MatchKind::Regex};
+                break;
+            }
         }
     }
 
-    return {};
+    if (allow_len == 0 && deny_len == 0) return {};
+    // Allow wins on tie (an apex listed in both is ambiguous; prefer
+    // permissive). Otherwise the longer hostname pattern wins.
+    if (allow_len > 0 && allow_len >= deny_len) {
+        (void)allow_exact_hit;
+        return {};
+    }
+    return deny;
 }
 
 } // namespace cloak

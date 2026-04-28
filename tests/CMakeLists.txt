@@ -21,7 +21,8 @@ add_executable(cloak_tests
     test_etld.cpp
     test_tls.cpp
     test_dot.cpp
-    test_http_client.cpp)
+    test_http_client.cpp
+    test_ech_bootstrap.cpp)
 target_include_directories(cloak_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(cloak_tests PRIVATE
     CLOAK_TEST_BLOCKLIST="${CMAKE_SOURCE_DIR}/blocklists/tier1.txt")

@@ -179,3 +179,129 @@ TEST(TlsEch, EchSupportedReturnsBuildFlag) {
     EXPECT_FALSE(supported);
 #endif
 }
+
+// --- EchConfig load/store invariants ----------------------------------
+//
+// The wrapper must (a) start empty, (b) round-trip a snapshot, (c) keep
+// readers' shared_ptr snapshots alive across a subsequent store(), and
+// (d) report enabled() correctly for null/empty/non-empty bytes.
+
+TEST(TlsEchConfig, DefaultStateIsDisabled) {
+    cloak::tls::EchConfig cfg;
+    EXPECT_FALSE(cfg.enabled());
+    auto snap = cfg.load();
+    EXPECT_EQ(snap.bytes, nullptr);
+    EXPECT_TRUE(snap.outer_servername.empty());
+}
+
+TEST(TlsEchConfig, StoreThenLoadRoundTrips) {
+    cloak::tls::EchConfig cfg;
+    auto bytes = std::make_shared<const std::vector<std::byte>>(
+        std::vector<std::byte>{std::byte{0xfe}, std::byte{0x0d}, std::byte{0x42}});
+    cfg.store({.bytes = bytes, .outer_servername = "cover.example"});
+
+    EXPECT_TRUE(cfg.enabled());
+    auto snap = cfg.load();
+    ASSERT_NE(snap.bytes, nullptr);
+    ASSERT_EQ(snap.bytes->size(), 3u);
+    EXPECT_EQ(std::to_integer<std::uint8_t>((*snap.bytes)[0]), 0xfeu);
+    EXPECT_EQ(snap.outer_servername, "cover.example");
+}
+
+TEST(TlsEchConfig, EmptyVectorReportsDisabled) {
+    cloak::tls::EchConfig cfg;
+    cfg.store({.bytes = std::make_shared<const std::vector<std::byte>>(),
+               .outer_servername = ""});
+    EXPECT_FALSE(cfg.enabled());
+}
+
+TEST(TlsEchConfig, OldSnapshotSurvivesSwap) {
+    // The whole point of the shared_ptr indirection: an in-flight
+    // handshake holds a snapshot taken before a SIGHUP swap, and that
+    // snapshot's bytes must remain valid after the swap.
+    cloak::tls::EchConfig cfg;
+    auto v1 = std::make_shared<const std::vector<std::byte>>(
+        std::vector<std::byte>{std::byte{0xaa}, std::byte{0xbb}});
+    cfg.store({.bytes = v1, .outer_servername = "v1"});
+
+    auto held = cfg.load();        // simulates an in-flight handshake
+
+    auto v2 = std::make_shared<const std::vector<std::byte>>(
+        std::vector<std::byte>{std::byte{0xcc}});
+    cfg.store({.bytes = v2, .outer_servername = "v2"});
+
+    // The previously-loaded snapshot still resolves to v1's bytes.
+    ASSERT_NE(held.bytes, nullptr);
+    ASSERT_EQ(held.bytes->size(), 2u);
+    EXPECT_EQ(std::to_integer<std::uint8_t>((*held.bytes)[0]), 0xaau);
+    EXPECT_EQ(held.outer_servername, "v1");
+
+    // Subsequent reads see v2.
+    auto fresh = cfg.load();
+    ASSERT_EQ(fresh.bytes->size(), 1u);
+    EXPECT_EQ(std::to_integer<std::uint8_t>((*fresh.bytes)[0]), 0xccu);
+    EXPECT_EQ(fresh.outer_servername, "v2");
+}
+
+TEST(TlsEch, StatusOnNullSslIsNotTried) {
+    EXPECT_EQ(cloak::tls::ech_status(nullptr), cloak::tls::EchStatus::NotTried);
+}
+
+TEST(TlsEch, RetryConfigOnNullSslIsNullopt) {
+    EXPECT_FALSE(cloak::tls::ech_retry_config(nullptr).has_value());
+}
+
+// validate_ech_config_list: smoke tests. We can't construct a real ECH
+// config from a unit test (would require running OSSL_ECHSTORE codepaths
+// against a private key), but we CAN verify that the validator rejects
+// obviously-malformed input. On non-ECH builds the validator is a no-op
+// success, which the BuildFlagPath case documents.
+
+TEST(TlsEchValidate, EmptyBytesRejected) {
+#ifdef CLOAKDNS_HAVE_ECH
+    auto err = cloak::tls::validate_ech_config_list({});
+    EXPECT_TRUE(err.has_value());
+#else
+    GTEST_SKIP() << "no-op success on non-ECH builds";
+#endif
+}
+
+TEST(TlsEchValidate, RandomBytesRejected) {
+#ifdef CLOAKDNS_HAVE_ECH
+    // 32 bytes of pure noise should not parse as an ECHConfigList.
+    std::vector<std::byte> noise(32);
+    for (std::size_t i = 0; i < noise.size(); ++i)
+        noise[i] = std::byte{static_cast<std::uint8_t>(i ^ 0x5a)};
+    auto err = cloak::tls::validate_ech_config_list(noise);
+    EXPECT_TRUE(err.has_value())
+        << "expected validator to reject random bytes; passed";
+#else
+    GTEST_SKIP() << "no-op success on non-ECH builds";
+#endif
+}
+
+TEST(TlsEchValidate, BuildFlagPath) {
+    // On a build without CLOAKDNS_HAVE_ECH, the validator returns
+    // nullopt regardless — there's nothing to check. Document that.
+    std::vector<std::byte> noise(8, std::byte{0xff});
+#ifdef CLOAKDNS_HAVE_ECH
+    EXPECT_TRUE(cloak::tls::validate_ech_config_list(noise).has_value());
+#else
+    EXPECT_FALSE(cloak::tls::validate_ech_config_list(noise).has_value());
+#endif
+}
+
+// HttpAlpn enum routes through Context construction without throwing.
+TEST(TlsContext, AlpnHttp1OnlyConstructsCleanly) {
+    cloak::tls::ContextConfig cfg;
+    cfg.servername = "example.com";
+    cfg.alpn       = cloak::tls::HttpAlpn::Http1Only;
+    EXPECT_NO_THROW({ cloak::tls::Context ctx{cfg}; });
+}
+
+TEST(TlsContext, EchGreaseFlagFlows) {
+    cloak::tls::ContextConfig cfg;
+    cfg.servername = "example.com";
+    cfg.ech_grease = true;
+    EXPECT_NO_THROW({ cloak::tls::Context ctx{cfg}; });
+}

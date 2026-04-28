@@ -78,19 +78,53 @@ def fail(msg: str) -> None:
     sys.exit(2)
 
 
+def find_tshark() -> str:
+    on_path = shutil.which("tshark")
+    if on_path:
+        return on_path
+    win_default = Path(r"C:\Program Files\Wireshark\tshark.exe")
+    if win_default.is_file():
+        return str(win_default)
+    return "tshark"
+
+
+def find_dig() -> str:
+    on_path = shutil.which("dig")
+    if on_path:
+        return on_path
+    user = os.environ.get("USERPROFILE", "")
+    if user:
+        winget_dig = Path(user) / (
+            r"AppData\Local\Microsoft\WinGet\Packages"
+            r"\ISC.Bind_Microsoft.Winget.Source_8wekyb3d8bbwe\dig.exe")
+        if winget_dig.is_file():
+            return str(winget_dig)
+    return "dig"
+
+
 def fetch_ech_config_b64(hostname: str, dig: str) -> str:
-    """Resolve `hostname` HTTPS RR via dig, extract the ech= SvcParam."""
+    """Resolve `hostname` HTTPS RR via dig, extract the ech= SvcParam.
+
+    Uses TYPE65 rather than the HTTPS mnemonic because older dig
+    builds (Windows winget ships 9.17.12) don't recognise the
+    HTTPS string and silently fall through to an A query.
+    """
     try:
         out = subprocess.check_output(
-            [dig, "+short", hostname, "HTTPS"],
+            [dig, "+short", hostname, "TYPE65"],
             text=True, timeout=15)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-        fail(f"dig HTTPS {hostname} failed: {e}")
+        fail(f"dig TYPE65 {hostname} failed: {e}")
     # dig prints something like:
-    #   1 . alpn="h2" ipv4hint=1.1.1.1 ech=AED+DQA8...
+    #   \# 156 0001 000004 0001 ...    (newer dig with the unknown-RR encoding)
+    # or
+    #   1 . alpn="h2" ipv4hint=1.1.1.1 ech=AED+DQA8...   (newer dig, parsed)
+    # The ech= parser handles the human-readable form. For unknown-RR
+    # form, we'd need to byte-walk the rdata. defo.ie's auth servers
+    # serve the parsed form on dig 9.16+.
     m = re.search(r'\bech=([A-Za-z0-9+/=]+)', out)
     if not m:
-        fail(f"dig output for {hostname} HTTPS contained no ech= SvcParam:\n{out}")
+        fail(f"dig output for {hostname} TYPE65 contained no ech= SvcParam:\n{out}")
     return m.group(1)
 
 
@@ -269,8 +303,8 @@ def main() -> int:
     ap.add_argument("--listen-port", type=int, default=5354)
     ap.add_argument("--interface", default="any",
                     help="capture interface for tshark. Default: any (Linux); use --interface lo0 on macOS or a numeric NIC on Windows.")
-    ap.add_argument("--tshark", default="tshark")
-    ap.add_argument("--dig",    default="dig")
+    ap.add_argument("--tshark", default=find_tshark())
+    ap.add_argument("--dig",    default=find_dig())
     ap.add_argument("--keep-tmp", action="store_true",
                     help="don't delete the working directory on exit")
     args = ap.parse_args()

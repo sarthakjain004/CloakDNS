@@ -13,6 +13,10 @@ blocklists/merged.txt.manifest.json
 blocklists/.body-cache/
 *.pcap
 
+# system-deploy runtime config (machine-specific, holds local paths)
+cloakdns-system.toml
+cacert.pem
+
 Testing/
 CMakeUserPresets.json
 
@@ -21,6 +25,7 @@ papers/
 DNSQuerySniffer/
 learnings/
 results/
+dev-scratch/
 
 .claude/
 
