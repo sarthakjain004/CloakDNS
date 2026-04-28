@@ -54,6 +54,15 @@ struct UpstreamConfig {
     bool                       ech_enabled{false};
     std::string                ech_outer_servername;
     std::vector<std::byte>     ech_config_list;
+
+    // Auto-fetch the ECHConfigList from the upstream's HTTPS DNS RR at
+    // startup (and on SIGHUP). When true, ech_config_list_b64 in TOML
+    // becomes a fallback used only if every bootstrap server fails.
+    // The bootstrap query is plain UDP — a one-time cleartext leak that
+    // reveals only the upstream hostname (already in this config).
+    bool                       ech_autobootstrap{false};
+    std::vector<Endpoint>      ech_bootstrap_servers{
+                                  {"1.0.0.1", 53}, {"8.8.8.8", 53}};
 };
 
 struct BlocklistConfig {

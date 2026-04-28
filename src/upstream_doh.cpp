@@ -21,7 +21,7 @@
 
 namespace cloak::detail {
 
-asio::awaitable<std::optional<std::vector<std::byte>>>
+asio::awaitable<std::optional<UpstreamReply>>
 doh_try_once(asio::io_context& ctx,
              tls::Context& tls_ctx,
              const asio::ip::tcp::endpoint& server,
@@ -44,7 +44,10 @@ doh_try_once(asio::io_context& ctx,
         co_return std::nullopt;
     }
 
-    co_return std::move(resp->body);
+    co_return UpstreamReply{
+        .bytes      = std::move(resp->body),
+        .ech_status = resp->ech_status,
+    };
 }
 
 } // namespace cloak::detail

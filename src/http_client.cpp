@@ -193,6 +193,10 @@ post_https_oneshot(asio::io_context& ctx,
         co_return std::nullopt;
     }
 
+    // Snapshot ECH state right after the handshake — the SSL* still
+    // owns the post-handshake state we care about.
+    const tls::EchStatus ech_state = tls::ech_status(stream->native_handle());
+
     auto parsed = parse_response_head(head_buf);
     if (!parsed) co_return std::nullopt;
 
@@ -214,6 +218,7 @@ post_https_oneshot(asio::io_context& ctx,
     Response resp;
     resp.status = parsed->status;
     resp.content_type = header_value(parsed->headers, "content-type").value_or("");
+    resp.ech_status = ech_state;
     resp.body.resize(body_len);
 
     const std::size_t already = head_buf.size() - body_start;

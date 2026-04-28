@@ -94,11 +94,14 @@ dot_read_framed(asio::ssl::stream<asio::ip::tcp::socket>& stream,
 // Single-shot DoT exchange: open TCP, TLS handshake (cert + pin verified
 // inside), write framed query, read framed response. Returns nullopt on
 // any failure mode that should let the caller try the next upstream.
+// On success, the returned UpstreamReply carries both the response bytes
+// and the ECH state observed on the handshake (Greased / Success /
+// FailedRetry / NotTried).
 //
 // `outbound` already has the upstream's transaction ID written at offset 0
 // and any EDNS padding applied — same convention as the UDP path in
 // upstream.cpp.
-asio::awaitable<std::optional<std::vector<std::byte>>>
+asio::awaitable<std::optional<UpstreamReply>>
 dot_try_once(asio::io_context& ctx,
              tls::Context& tls_ctx,
              const asio::ip::tcp::endpoint& server,
@@ -169,12 +172,18 @@ dot_try_once(asio::io_context& ctx,
     auto resp = co_await dot_read_framed(*stream, timer);
     timer.cancel();
 
+    // ECH status snapshot taken before we tear the connection down.
+    // Successful handshakes report Success (or NotTried on non-ECH
+    // builds / non-ECH connections).
+    const tls::EchStatus ech = tls::ech_status(stream->native_handle());
+
     // Best-effort shutdown; ignore close-notify alerts.
     std::error_code ignore;
     stream->lowest_layer().shutdown(asio::ip::tcp::socket::shutdown_both, ignore);
     stream->lowest_layer().close(ignore);
 
-    co_return resp;
+    if (!resp) co_return std::nullopt;
+    co_return UpstreamReply{.bytes = std::move(*resp), .ech_status = ech};
 }
 
 } // namespace cloak::detail
