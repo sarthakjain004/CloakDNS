@@ -19,9 +19,6 @@ struct Response {
     int                    status{0};   // HTTP status code, e.g. 200
     std::vector<std::byte> body;
     std::string            content_type;  // value of Content-Type header (lowercased)
-    // ECH state observed on the underlying TLS handshake. NotTried for
-    // non-ECH builds and connections without an ECHConfigList.
-    tls::EchStatus         ech_status{tls::EchStatus::NotTried};
 };
 
 // One-shot HTTPS POST. Opens a fresh TCP+TLS connection, writes the

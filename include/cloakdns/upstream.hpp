@@ -1,7 +1,5 @@
 #pragma once
 
-#include "cloakdns/tls.hpp"
-
 #include <asio/awaitable.hpp>
 #include <asio/io_context.hpp>
 #include <asio/ip/tcp.hpp>
@@ -20,13 +18,10 @@
 
 namespace cloak {
 
-// Internal: result of one single-shot upstream exchange. Used to plumb
-// ECH state from detail::dot_try_once / detail::doh_try_once back to
-// the forwarder so it can attach status to ForwardResult.
-struct UpstreamReply {
-    std::vector<std::byte> bytes;
-    tls::EchStatus         ech_status{tls::EchStatus::NotTried};
-};
+namespace tls {
+class Context;
+struct ContextConfig;
+} // namespace tls
 
 // Result of a successful upstream forward. `upstream` is pre-stringified
 // ("1.1.1.1:53" / "1.1.1.1:853") so the query log can record which server
@@ -34,9 +29,6 @@ struct UpstreamReply {
 struct ForwardResult {
     std::vector<std::byte> response;
     std::string            upstream;
-    // ECH state on the answering connection. NotTried for UDP and for
-    // non-ECH builds; otherwise reflects SSL_ech_get1_status.
-    tls::EchStatus         ech_status{tls::EchStatus::NotTried};
 };
 
 class UpstreamForwarder {
@@ -71,9 +63,6 @@ public:
         std::string            ech_outer_servername;
         std::vector<std::byte> ech_config_list;
 
-        // Send GREASE ECH on non-ECH connections (RFC 9849 §6.2).
-        bool                   ech_grease{false};
-
         std::chrono::milliseconds timeout{2000};
         int                       retries_on_primary{1};
         std::size_t               padding_block_size{128};   // 0 disables
@@ -92,10 +81,6 @@ public:
     forward(std::span<const std::byte> client_query);
 
     Protocol protocol() const noexcept { return cfg_.protocol; }
-
-    // Live TLS context, or nullptr for protocol == Udp. SIGHUP uses this
-    // to swap a fresh ECHConfigList in without rebuilding the forwarder.
-    tls::Context* tls_context() noexcept { return tls_ctx_.get(); }
 
 private:
     asio::awaitable<std::optional<std::vector<std::byte>>>

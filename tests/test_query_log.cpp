@@ -101,26 +101,9 @@ TEST(JsonLine, IncludesSchemaVersion) {
     auto line = to_json_line(sample_record());
     // Schema version is the very first field — analytics consumers read
     // a fixed prefix to detect old logs. Bumped to 2 in M13 when
-    // LogAction::Suspicious was added; bumped to 3 when the optional
-    // tls_ech_status field was added (Phase 2 of ECH completion).
-    EXPECT_TRUE(line.starts_with("{\"v\":3,"))
+    // LogAction::Suspicious was added.
+    EXPECT_TRUE(line.starts_with("{\"v\":2,"))
         << "expected schema-version prefix, got: " << line.substr(0, 16);
-}
-
-TEST(JsonLine, EmitsTlsEchStatusWhenPresent) {
-    auto rec = sample_record();
-    rec.tls_ech_status = "success";
-    auto line = to_json_line(rec);
-    EXPECT_NE(line.find("\"tls_ech_status\":\"success\""), std::string::npos)
-        << "expected tls_ech_status field in: " << line;
-}
-
-TEST(JsonLine, OmitsTlsEchStatusWhenNullopt) {
-    auto rec = sample_record();
-    rec.tls_ech_status.reset();
-    auto line = to_json_line(rec);
-    EXPECT_EQ(line.find("tls_ech_status"), std::string::npos)
-        << "tls_ech_status leaked into log line: " << line;
 }
 
 TEST(QueryLogger, RotatesPastMaxSize) {

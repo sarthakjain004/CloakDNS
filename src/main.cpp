@@ -3,11 +3,9 @@
 #include "cloakdns/config.hpp"
 #include "cloakdns/dns_parser.hpp"
 #include "cloakdns/dns_writer.hpp"
-#include "cloakdns/ech_bootstrap.hpp"
 #include "cloakdns/paths.hpp"
 #include "cloakdns/privilege.hpp"
 #include "cloakdns/query_log.hpp"
-#include "cloakdns/tls.hpp"
 #include "cloakdns/uncloaker.hpp"
 #include "cloakdns/upstream.hpp"
 
@@ -17,7 +15,6 @@
 #include <asio/detached.hpp>
 #include <asio/signal_set.hpp>
 #include <asio/this_coro.hpp>
-#include <asio/use_future.hpp>
 
 #include <array>
 #include <atomic>
@@ -117,9 +114,7 @@ awaitable<void> handle(std::vector<std::byte> query_buf,
                           uint16_t qtype,
                           std::string rule = "",
                           std::vector<std::string> chain = {},
-                          std::optional<std::string> upstream = std::nullopt,
-                          std::optional<cloak::tls::EchStatus> ech =
-                              std::nullopt) {
+                          std::optional<std::string> upstream = std::nullopt) {
         cloak::QueryLog rec;
         rec.ts          = wallclock_start;
         rec.qname       = qname;
@@ -131,12 +126,6 @@ awaitable<void> handle(std::vector<std::byte> query_buf,
         rec.client      = to_string_via_stream(from);
         rec.latency_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - t0).count();
-        // Only attach when the upstream actually used TLS (UDP / non-ECH
-        // builds report NotTried — keep those out of the JSONL to avoid
-        // noise on legacy / UDP deployments).
-        if (ech && *ech != cloak::tls::EchStatus::NotTried) {
-            rec.tls_ech_status = std::string{cloak::tls::to_string(*ech)};
-        }
         logger.log(std::move(rec));
     };
 
@@ -200,7 +189,6 @@ awaitable<void> handle(std::vector<std::byte> query_buf,
             auto fwd_result = co_await fwd.forward_with_source(query);
             auto upstream_resp = std::move(fwd_result.response);
             const auto upstream_str = fwd_result.upstream;
-            const auto upstream_ech = fwd_result.ech_status;
 
             auto try_cache_insert = [&]() {
                 if (auto key = cloak::make_cache_key(msg)) {
@@ -230,8 +218,7 @@ awaitable<void> handle(std::vector<std::byte> query_buf,
                     log_chain(std::cout, result.chain);
                     std::cout << std::endl;
                     log_record(cloak::LogAction::Uncloak, qname, qtype,
-                               result.hit.rule, result.chain, upstream_str,
-                               upstream_ech);
+                               result.hit.rule, result.chain, upstream_str);
                     break;
                 case cloak::UncloakStatus::Aborted:
                     response = cloak::build_servfail_response(query, msg);
@@ -239,8 +226,7 @@ awaitable<void> handle(std::vector<std::byte> query_buf,
                               << "  (" << result.abort_reason << ")"
                               << std::endl;
                     log_record(cloak::LogAction::ServFail, qname, qtype,
-                               result.abort_reason, {}, upstream_str,
-                               upstream_ech);
+                               result.abort_reason, {}, upstream_str);
                     break;
                 case cloak::UncloakStatus::Clean:
                     try_cache_insert();
@@ -258,14 +244,14 @@ awaitable<void> handle(std::vector<std::byte> query_buf,
                         std::cout << std::endl;
                         log_record(cloak::LogAction::Suspicious, qname, qtype,
                                    "etldp1-cross:" + result.crossed_to,
-                                   result.chain, upstream_str, upstream_ech);
+                                   result.chain, upstream_str);
                     } else {
                         std::cout << "forward " << qname;
                         if (result.chain.size() > 1)
                             log_chain(std::cout, result.chain);
                         std::cout << std::endl;
                         log_record(cloak::LogAction::Allow, qname, qtype,
-                                   "", result.chain, upstream_str, upstream_ech);
+                                   "", result.chain, upstream_str);
                     }
                     break;
                 }
@@ -274,7 +260,7 @@ awaitable<void> handle(std::vector<std::byte> query_buf,
                 response = std::move(upstream_resp);
                 std::cout << "forward " << qname << "  qtype=" << qtype << std::endl;
                 log_record(cloak::LogAction::Allow, qname, qtype,
-                           "", {}, upstream_str, upstream_ech);
+                           "", {}, upstream_str);
             }
         } catch (const std::exception& e) {
             response = cloak::build_servfail_response(query, msg);
@@ -426,70 +412,11 @@ cloak::Blocklist build_blocklist(const cloak::Config& cfg) {
 
 int main(int argc, char** argv) {
     try {
-        // The TOML path (if any) is captured separately so the SIGHUP /
-        // SIGBREAK handler can re-parse the file from disk and pick up
-        // changes to ech_config_list_b64. argv[0] is the binary, argv[1]
-        // is the config path when present.
-        std::optional<std::filesystem::path> reload_path;
-        if (argc > 1) {
-            std::filesystem::path p{argv[1]};
-            if (p.extension().string() == ".toml") reload_path = std::move(p);
-        }
-        if (!reload_path) {
-            if (auto discovered = cloak::find_config_path(argc > 0 ? argv[0] : ""))
-                reload_path = std::move(*discovered);
-        }
-        auto cfg = load_or_default(argc, argv);
+        const auto cfg = load_or_default(argc, argv);
 
         blocklist_store(std::make_shared<cloak::Blocklist>(build_blocklist(cfg)));
 
         asio::io_context ctx;
-
-        // Auto-bootstrap the ECHConfigList from the upstream's HTTPS RR
-        // when the user opted in. The bootstrap query is plain UDP — a
-        // documented one-time cleartext leak revealing the upstream
-        // hostname. On success we overwrite the inline TOML bytes (if
-        // any). On failure we fall back to the inline bytes; if those
-        // are also empty config validation already rejected the load,
-        // so cfg.upstream.ech_config_list is non-empty by here.
-        bool startup_bootstrap_succeeded = false;
-        if (cfg.upstream.ech_enabled && cfg.upstream.ech_autobootstrap) {
-            std::vector<asio::ip::udp::endpoint> bootstrap_eps;
-            for (const auto& ep : cfg.upstream.ech_bootstrap_servers) {
-                bootstrap_eps.emplace_back(make_address(ep.host), ep.port);
-            }
-            std::cout << "ech bootstrap: querying "
-                      << cfg.upstream.servername << " HTTPS via "
-                      << bootstrap_eps.size() << " resolver(s)" << std::endl;
-            auto fut = asio::co_spawn(
-                ctx,
-                cloak::bootstrap_ech_config(
-                    ctx,
-                    std::span<const asio::ip::udp::endpoint>{bootstrap_eps},
-                    cfg.upstream.servername,
-                    cfg.upstream.timeout),
-                asio::use_future);
-            ctx.run();
-            ctx.restart();
-            try {
-                if (auto bytes = fut.get(); bytes && !bytes->empty()) {
-                    cfg.upstream.ech_config_list = std::move(*bytes);
-                    startup_bootstrap_succeeded = true;
-                } else if (cfg.upstream.ech_config_list.empty()) {
-                    throw std::runtime_error{
-                        "ech bootstrap failed and no inline ech_config_list_b64 "
-                        "fallback — refusing to start with ECH enabled but no "
-                        "config bytes"};
-                } else {
-                    std::cerr << "ech bootstrap failed; falling back to "
-                              << "inline ech_config_list_b64 ("
-                              << cfg.upstream.ech_config_list.size()
-                              << " bytes)" << std::endl;
-                }
-            } catch (const std::exception&) {
-                throw;
-            }
-        }
 
         const auto fwd_proto = translate_protocol(cfg.upstream.protocol);
         cloak::UpstreamForwarder::Config upstream_cfg{};
@@ -501,7 +428,6 @@ int main(int argc, char** argv) {
             upstream_cfg.ech_outer_servername = cfg.upstream.ech_outer_servername;
             upstream_cfg.ech_config_list      = cfg.upstream.ech_config_list;
         }
-        upstream_cfg.ech_grease = cfg.upstream.ech_grease;
         upstream_cfg.timeout            = cfg.upstream.timeout;
         upstream_cfg.retries_on_primary = cfg.upstream.retries_on_primary;
         upstream_cfg.padding_block_size = cfg.upstream.padding_block_size;
@@ -511,19 +437,6 @@ int main(int argc, char** argv) {
             upstream_cfg.tcp_servers = resolve_tcp_servers(cfg.upstream.servers);
         }
         cloak::UpstreamForwarder forwarder{ctx, std::move(upstream_cfg)};
-
-        // Stamp the initial Snapshot with fetched_at=now if the bytes
-        // came from the startup bootstrap path. UpstreamForwarder's
-        // constructor doesn't know whether the bytes were fetched or
-        // inline, so we patch the timestamp in here. Inline-TOML bytes
-        // keep their default (epoch) timestamp.
-        if (startup_bootstrap_succeeded) {
-            if (auto* tls_ctx = forwarder.tls_context(); tls_ctx) {
-                auto snap = tls_ctx->ech_config().load();
-                snap.fetched_at = std::chrono::system_clock::now();
-                tls_ctx->ech_config().store(std::move(snap));
-            }
-        }
 
         // Uncloaker holds a `const Blocklist&` to its initial snapshot.
         // Hot reload swaps `g_blocklist`, but the uncloaker's reference
@@ -618,103 +531,12 @@ int main(int argc, char** argv) {
 #endif
         asio::signal_set reload_signals{ctx, kReloadSignal};
         std::function<void(const std::error_code&, int)> on_reload;
-        // Swap a freshly-built EchConfig snapshot into the live
-        // tls::Context. Used both at startup (no-op when ECH is off)
-        // and from the reload path. Synchronous and lock-free — the
-        // EchConfig wrapper is internally mutex-guarded.
-        //
-        // `from_bootstrap=true` stamps fetched_at with now() so
-        // staleness tracking knows the bytes are fresh. Inline-TOML
-        // bytes get the default-constructed (epoch) timestamp.
-        auto swap_ech = [&forwarder](const cloak::Config& c,
-                                     bool from_bootstrap) {
-            auto* tls_ctx = forwarder.tls_context();
-            if (!tls_ctx) return;
-
-            // Compute the age of the previous snapshot before we drop
-            // it. Useful diagnostic on SIGHUP-triggered refreshes —
-            // operators can see how stale the rotated-out config was.
-            const auto prev = tls_ctx->ech_config().load();
-            const auto now  = std::chrono::system_clock::now();
-            if (from_bootstrap &&
-                prev.fetched_at.time_since_epoch().count() > 0) {
-                const auto age_h = std::chrono::duration_cast<
-                    std::chrono::hours>(now - prev.fetched_at);
-                std::cout << "ech: refreshed config — previous was "
-                          << age_h.count() << "h old" << std::endl;
-            }
-
-            cloak::tls::EchConfig::Snapshot snap;
-            if (!c.upstream.ech_config_list.empty()) {
-                snap.bytes = std::make_shared<const std::vector<std::byte>>(
-                    c.upstream.ech_config_list);
-            }
-            snap.outer_servername = c.upstream.ech_outer_servername;
-            if (from_bootstrap) snap.fetched_at = now;
-            tls_ctx->ech_config().store(std::move(snap));
-            std::cout << "reload: swapped ECH config ("
-                      << c.upstream.ech_config_list.size() << " bytes)"
-                      << std::endl;
-        };
-
         on_reload = [&](const std::error_code& ec, int) {
             if (ec) return;   // cancelled (e.g. shutdown)
             try {
                 std::cout << "\nreload (" << kReloadName << "): rebuilding blocklist" << std::endl;
-                // Re-parse the config from disk if we know its path —
-                // lets the user edit ech_config_list_b64 (and blocklist
-                // sources) and pick the changes up via SIGHUP/SIGBREAK
-                // without restart. Falls back to the original cfg when
-                // running in legacy "argv = bare blocklist" mode.
-                cloak::Config fresh_cfg = cfg;
-                if (reload_path) {
-                    fresh_cfg = cloak::load_config(*reload_path);
-                }
-                auto fresh = std::make_shared<cloak::Blocklist>(build_blocklist(fresh_cfg));
+                auto fresh = std::make_shared<cloak::Blocklist>(build_blocklist(cfg));
                 blocklist_store(std::move(fresh));
-
-                if (fresh_cfg.upstream.ech_enabled &&
-                    fresh_cfg.upstream.ech_autobootstrap &&
-                    forwarder.tls_context()) {
-                    // Re-bootstrap from the upstream's HTTPS RR. We can't
-                    // block here (the io_context is currently servicing
-                    // this signal handler — a wait_for would deadlock the
-                    // bootstrap's own UDP I/O), so spawn a coroutine that
-                    // does the fetch and swaps the result in on
-                    // completion. Until it lands, the existing TLS
-                    // Context keeps the old bytes — fine, the daemon
-                    // continues serving with the previous ECH config.
-                    std::vector<asio::ip::udp::endpoint> bootstrap_eps;
-                    for (const auto& ep : fresh_cfg.upstream.ech_bootstrap_servers) {
-                        bootstrap_eps.emplace_back(make_address(ep.host), ep.port);
-                    }
-                    asio::co_spawn(
-                        ctx,
-                        [&ctx, fresh_cfg, bootstrap_eps, &swap_ech]() mutable
-                            -> asio::awaitable<void> {
-                            auto bytes = co_await cloak::bootstrap_ech_config(
-                                ctx,
-                                std::span<const asio::ip::udp::endpoint>{bootstrap_eps},
-                                fresh_cfg.upstream.servername,
-                                fresh_cfg.upstream.timeout);
-                            const bool got_fresh = bytes && !bytes->empty();
-                            if (got_fresh) {
-                                fresh_cfg.upstream.ech_config_list = std::move(*bytes);
-                            } else {
-                                std::cerr << "reload: ech bootstrap returned "
-                                          << "no bytes; keeping previous "
-                                          << "config" << std::endl;
-                            }
-                            swap_ech(fresh_cfg, /*from_bootstrap=*/got_fresh);
-                            co_return;
-                        },
-                        asio::detached);
-                } else {
-                    // Synchronous swap — no bootstrap to wait on. The
-                    // bytes came from inline TOML (or were left empty
-                    // by ech_enabled=false), so don't stamp fetched_at.
-                    swap_ech(fresh_cfg, /*from_bootstrap=*/false);
-                }
             } catch (const std::exception& e) {
                 std::cerr << "reload failed (" << e.what()
                           << ") — keeping previous blocklist" << std::endl;

@@ -41,10 +41,6 @@ struct QueryLog {
     std::optional<std::string> upstream;      // "host:port" for upstream-hitting actions
     double                    latency_ms{};
     std::string               client;        // "ip:port"
-    // Stringified tls::EchStatus when the answer came over a TLS-bearing
-    // upstream. Schema v3. nullopt for UDP / non-ECH builds / non-ECH
-    // connections — the field is omitted from the JSONL line.
-    std::optional<std::string> tls_ech_status;
 };
 
 // Serialize a QueryLog record to a single JSON line (no trailing newline).
@@ -107,8 +103,7 @@ private:
 // Bump on any schema change that adds/removes/reshapes a top-level field
 // — or extends the LogAction value set, which the dashboard switches on.
 // v2: added LogAction::Suspicious for eTLD+1 cross signals (M13).
-// v3: added optional tls_ech_status field (Phase 2 of ECH completion).
-inline constexpr int kQueryLogSchemaVersion = 3;
+inline constexpr int kQueryLogSchemaVersion = 2;
 
 // Stable, deterministic obfuscated identifier for [logging] redact_client.
 // Implementation: FNV-1a 64-bit, top 32 bits → 8 hex chars, "hash:" prefix.

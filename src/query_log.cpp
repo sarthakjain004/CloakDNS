@@ -161,10 +161,6 @@ std::string to_json_line(const QueryLog& r) {
     append_latency(out, r.latency_ms);
     out += R"(,"client":)";
     append_json_string(out, r.client);
-    if (r.tls_ech_status) {
-        out += R"(,"tls_ech_status":)";
-        append_json_string(out, *r.tls_ech_status);
-    }
     out += '}';
     return out;
 }
