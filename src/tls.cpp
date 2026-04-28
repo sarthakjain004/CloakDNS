@@ -176,6 +176,17 @@ bool configure_ssl_for_connection(SSL* ssl,
     // ECH disabled or unavailable: standard SNI path.
     if (SSL_set_tlsext_host_name(ssl, real_sni.c_str()) != 1) return false;
     if (SSL_set1_host(ssl, real_sni.c_str()) != 1) return false;
+
+#ifdef CLOAKDNS_HAVE_ECH
+    // RFC 9849 §6.2: when ECH is supported by the build but no real
+    // config is loaded, the client SHOULD emit a GREASE ECH extension
+    // so an on-path observer can't tell us apart from a real-ECH
+    // client. Opt-in via cfg.ech_grease (default off, so the wire
+    // shape doesn't change unless the operator asks).
+    if (cfg.ech_grease) {
+        SSL_set_options(ssl, SSL_OP_ECH_GREASE);
+    }
+#endif
     return true;
 }
 
@@ -297,6 +308,50 @@ Context::Context(ContextConfig& cfg)
         throw std::runtime_error{"tls: SSL_CTX_set_default_verify_paths failed"};
     SSL_CTX_set_verify(raw, SSL_VERIFY_PEER, verify_callback);
     SSL_CTX_set_ex_data(raw, g_ex_data_idx.load(std::memory_order_acquire), cfg_);
+
+    // ALPN: set on the SSL_CTX so every spawned SSL inherits it. The
+    // wire encoding is length-prefixed protocol identifiers per RFC
+    // 7301 — currently only "http/1.1" since DoH speaks HTTP/1.1.
+    if (cfg_->alpn == HttpAlpn::Http1Only) {
+        static const unsigned char kAlpnHttp1[] = {
+            8, 'h', 't', 't', 'p', '/', '1', '.', '1'
+        };
+        // SSL_CTX_set_alpn_protos returns 0 on SUCCESS (inverted).
+        if (SSL_CTX_set_alpn_protos(raw, kAlpnHttp1, sizeof(kAlpnHttp1)) != 0)
+            throw std::runtime_error{"tls: SSL_CTX_set_alpn_protos(http/1.1) failed"};
+    }
+}
+
+std::optional<std::string>
+validate_ech_config_list(std::span<const std::byte> bytes) noexcept {
+#ifdef CLOAKDNS_HAVE_ECH
+    if (bytes.empty()) return std::string{"ECHConfigList is empty"};
+    SSL_CTX* tmp_ctx = SSL_CTX_new(TLS_client_method());
+    if (!tmp_ctx) return std::string{"validate: SSL_CTX_new failed"};
+    SSL* tmp_ssl = SSL_new(tmp_ctx);
+    if (!tmp_ssl) {
+        SSL_CTX_free(tmp_ctx);
+        return std::string{"validate: SSL_new failed"};
+    }
+    const auto* p = reinterpret_cast<const unsigned char*>(bytes.data());
+    const int rc = SSL_set1_ech_config_list(tmp_ssl, p, bytes.size());
+    SSL_free(tmp_ssl);
+    SSL_CTX_free(tmp_ctx);
+    if (rc != 1) {
+        // ERR_get_error / ERR_error_string_n give us the OpenSSL
+        // diagnostic. Drain all errors and return the first.
+        unsigned long err = ERR_get_error();
+        char buf[256] = {0};
+        ERR_error_string_n(err, buf, sizeof(buf));
+        // Drain any remaining errors so they don't pollute later calls.
+        while (ERR_get_error()) {}
+        return std::string{"ECHConfigList rejected by OpenSSL: "} + buf;
+    }
+    return std::nullopt;
+#else
+    (void)bytes;
+    return std::nullopt;
+#endif
 }
 
 bool maybe_apply_ech_retry(Context& ctx, SSL* ssl) {

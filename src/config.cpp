@@ -125,6 +125,9 @@ UpstreamConfig parse_upstream(const toml::table& t) {
     if (auto v = t["ech_autobootstrap"].value<bool>(); v) {
         out.ech_autobootstrap = *v;
     }
+    if (auto v = t["ech_grease"].value<bool>(); v) {
+        out.ech_grease = *v;
+    }
     if (auto arr = t["ech_bootstrap_servers"].as_array()) {
         out.ech_bootstrap_servers.clear();
         for (const auto& el : *arr) {
@@ -151,6 +154,16 @@ UpstreamConfig parse_upstream(const toml::table& t) {
                  "missing or empty AND ech_autobootstrap is off. Either "
                  "provide the bytes inline, or set ech_autobootstrap = true "
                  "to fetch them from the upstream's HTTPS DNS record.");
+        }
+        // Inline bytes get a dry-run validation through OpenSSL's parser
+        // — catch malformed base64-decoded bytes at config load time
+        // instead of on the first connection. Bootstrap-fetched bytes
+        // are validated implicitly when SSL_set1_ech_config_list runs
+        // at handshake time.
+        if (!out.ech_config_list.empty()) {
+            if (auto err = tls::validate_ech_config_list(out.ech_config_list)) {
+                fail("upstream.ech_config_list_b64: " + *err);
+            }
         }
     }
     if ((out.protocol == UpstreamProtocol::Dot || out.protocol == UpstreamProtocol::Doh)

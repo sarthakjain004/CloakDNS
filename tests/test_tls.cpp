@@ -250,3 +250,58 @@ TEST(TlsEch, StatusOnNullSslIsNotTried) {
 TEST(TlsEch, RetryConfigOnNullSslIsNullopt) {
     EXPECT_FALSE(cloak::tls::ech_retry_config(nullptr).has_value());
 }
+
+// validate_ech_config_list: smoke tests. We can't construct a real ECH
+// config from a unit test (would require running OSSL_ECHSTORE codepaths
+// against a private key), but we CAN verify that the validator rejects
+// obviously-malformed input. On non-ECH builds the validator is a no-op
+// success, which the BuildFlagPath case documents.
+
+TEST(TlsEchValidate, EmptyBytesRejected) {
+#ifdef CLOAKDNS_HAVE_ECH
+    auto err = cloak::tls::validate_ech_config_list({});
+    EXPECT_TRUE(err.has_value());
+#else
+    GTEST_SKIP() << "no-op success on non-ECH builds";
+#endif
+}
+
+TEST(TlsEchValidate, RandomBytesRejected) {
+#ifdef CLOAKDNS_HAVE_ECH
+    // 32 bytes of pure noise should not parse as an ECHConfigList.
+    std::vector<std::byte> noise(32);
+    for (std::size_t i = 0; i < noise.size(); ++i)
+        noise[i] = std::byte{static_cast<std::uint8_t>(i ^ 0x5a)};
+    auto err = cloak::tls::validate_ech_config_list(noise);
+    EXPECT_TRUE(err.has_value())
+        << "expected validator to reject random bytes; passed";
+#else
+    GTEST_SKIP() << "no-op success on non-ECH builds";
+#endif
+}
+
+TEST(TlsEchValidate, BuildFlagPath) {
+    // On a build without CLOAKDNS_HAVE_ECH, the validator returns
+    // nullopt regardless — there's nothing to check. Document that.
+    std::vector<std::byte> noise(8, std::byte{0xff});
+#ifdef CLOAKDNS_HAVE_ECH
+    EXPECT_TRUE(cloak::tls::validate_ech_config_list(noise).has_value());
+#else
+    EXPECT_FALSE(cloak::tls::validate_ech_config_list(noise).has_value());
+#endif
+}
+
+// HttpAlpn enum routes through Context construction without throwing.
+TEST(TlsContext, AlpnHttp1OnlyConstructsCleanly) {
+    cloak::tls::ContextConfig cfg;
+    cfg.servername = "example.com";
+    cfg.alpn       = cloak::tls::HttpAlpn::Http1Only;
+    EXPECT_NO_THROW({ cloak::tls::Context ctx{cfg}; });
+}
+
+TEST(TlsContext, EchGreaseFlagFlows) {
+    cloak::tls::ContextConfig cfg;
+    cfg.servername = "example.com";
+    cfg.ech_grease = true;
+    EXPECT_NO_THROW({ cloak::tls::Context ctx{cfg}; });
+}

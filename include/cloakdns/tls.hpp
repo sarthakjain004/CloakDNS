@@ -9,6 +9,7 @@
 #include <memory>
 #include <optional>
 #include <shared_mutex>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -70,6 +71,11 @@ private:
     Snapshot                  state_;
 };
 
+enum class HttpAlpn {
+    None,        // no ALPN extension on the wire (legacy)
+    Http1Only,   // advertise just "http/1.1"
+};
+
 struct ContextConfig {
     // Accept any pin in this set. Empty disables pinning (chain validation
     // only). Wire format: "sha256/<base64>", as produced by compute_spki_pin
@@ -87,6 +93,17 @@ struct ContextConfig {
     // upstream.ech_enabled. Mutable at runtime via .store() so retry-
     // configs (RFC 9849 §6.1.6) and SIGHUP reload can swap fresh bytes.
     EchConfig ech;
+
+    // Send a GREASE ECH extension on connections where real ECH is not
+    // configured (RFC 9849 §6.2). Reduces fingerprinting between
+    // "client supports ECH but isn't using it" vs "client doesn't
+    // support ECH." No-op on builds without CLOAKDNS_HAVE_ECH.
+    bool ech_grease{false};
+
+    // ALPN advertisement on the TLS handshake. None preserves the v1
+    // behaviour (no ALPN extension); Http1Only sets "http/1.1" — what
+    // we use today for DoH since post_https_oneshot speaks HTTP/1.1.
+    HttpAlpn alpn{HttpAlpn::None};
 
     // Default-constructible so callers can populate field-by-field. Copy
     // and move are deleted because of the shared_mutex inside `ech` —
@@ -182,6 +199,15 @@ std::optional<std::vector<std::byte>> ech_retry_config(SSL* ssl) noexcept;
 // Decode a base64 string (with or without "=" padding; whitespace
 // ignored). Returns nullopt on any invalid character or wrong length.
 std::optional<std::vector<std::byte>> base64_decode(std::string_view input);
+
+// Dry-run validation for an ECHConfigList against OpenSSL's parser.
+// Returns an empty optional on success; on failure returns a human
+// readable error from ERR_get_error so config.cpp can fail load with
+// a useful message instead of a runtime handshake failure on the
+// first connection. No-op success on builds without CLOAKDNS_HAVE_ECH
+// (the bytes can't be checked there).
+std::optional<std::string>
+validate_ech_config_list(std::span<const std::byte> bytes) noexcept;
 
 // Idempotent OpenSSL init. Called from Context's constructor; exposed so
 // tests can pre-init without spinning up a full Context.

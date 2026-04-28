@@ -71,6 +71,9 @@ public:
         std::string            ech_outer_servername;
         std::vector<std::byte> ech_config_list;
 
+        // Send GREASE ECH on non-ECH connections (RFC 9849 §6.2).
+        bool                   ech_grease{false};
+
         std::chrono::milliseconds timeout{2000};
         int                       retries_on_primary{1};
         std::size_t               padding_block_size{128};   // 0 disables
