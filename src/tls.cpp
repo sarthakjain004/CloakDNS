@@ -363,6 +363,9 @@ bool maybe_apply_ech_retry(Context& ctx, SSL* ssl) {
     EchConfig::Snapshot fresh;
     fresh.bytes = std::make_shared<const std::vector<std::byte>>(std::move(*retry));
     fresh.outer_servername = current.outer_servername;
+    // Server just told us the previous config was stale — stamp the
+    // fresh bytes with "fetched now" so staleness tracking is honest.
+    fresh.fetched_at = std::chrono::system_clock::now();
     ech.store(std::move(fresh));
     return true;
 }
