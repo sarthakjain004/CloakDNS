@@ -5,6 +5,7 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
+#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <optional>
@@ -43,6 +44,11 @@ public:
         // Cleartext outer SNI (decoy hostname). Empty → let OpenSSL
         // use the public_name embedded in the ECHConfigList.
         std::string outer_servername;
+        // Wall-clock time the bytes were last refreshed (bootstrap or
+        // SIGHUP). Default-constructed (epoch) means "never fetched —
+        // bytes came from inline TOML at startup." Used by staleness
+        // checks to warn when the config is past its rotation cadence.
+        std::chrono::system_clock::time_point fetched_at{};
     };
 
     EchConfig() = default;

@@ -452,6 +452,7 @@ int main(int argc, char** argv) {
         // any). On failure we fall back to the inline bytes; if those
         // are also empty config validation already rejected the load,
         // so cfg.upstream.ech_config_list is non-empty by here.
+        bool startup_bootstrap_succeeded = false;
         if (cfg.upstream.ech_enabled && cfg.upstream.ech_autobootstrap) {
             std::vector<asio::ip::udp::endpoint> bootstrap_eps;
             for (const auto& ep : cfg.upstream.ech_bootstrap_servers) {
@@ -473,6 +474,7 @@ int main(int argc, char** argv) {
             try {
                 if (auto bytes = fut.get(); bytes && !bytes->empty()) {
                     cfg.upstream.ech_config_list = std::move(*bytes);
+                    startup_bootstrap_succeeded = true;
                 } else if (cfg.upstream.ech_config_list.empty()) {
                     throw std::runtime_error{
                         "ech bootstrap failed and no inline ech_config_list_b64 "
@@ -509,6 +511,19 @@ int main(int argc, char** argv) {
             upstream_cfg.tcp_servers = resolve_tcp_servers(cfg.upstream.servers);
         }
         cloak::UpstreamForwarder forwarder{ctx, std::move(upstream_cfg)};
+
+        // Stamp the initial Snapshot with fetched_at=now if the bytes
+        // came from the startup bootstrap path. UpstreamForwarder's
+        // constructor doesn't know whether the bytes were fetched or
+        // inline, so we patch the timestamp in here. Inline-TOML bytes
+        // keep their default (epoch) timestamp.
+        if (startup_bootstrap_succeeded) {
+            if (auto* tls_ctx = forwarder.tls_context(); tls_ctx) {
+                auto snap = tls_ctx->ech_config().load();
+                snap.fetched_at = std::chrono::system_clock::now();
+                tls_ctx->ech_config().store(std::move(snap));
+            }
+        }
 
         // Uncloaker holds a `const Blocklist&` to its initial snapshot.
         // Hot reload swaps `g_blocklist`, but the uncloaker's reference
@@ -607,15 +622,35 @@ int main(int argc, char** argv) {
         // tls::Context. Used both at startup (no-op when ECH is off)
         // and from the reload path. Synchronous and lock-free — the
         // EchConfig wrapper is internally mutex-guarded.
-        auto swap_ech = [&forwarder](const cloak::Config& c) {
+        //
+        // `from_bootstrap=true` stamps fetched_at with now() so
+        // staleness tracking knows the bytes are fresh. Inline-TOML
+        // bytes get the default-constructed (epoch) timestamp.
+        auto swap_ech = [&forwarder](const cloak::Config& c,
+                                     bool from_bootstrap) {
             auto* tls_ctx = forwarder.tls_context();
             if (!tls_ctx) return;
+
+            // Compute the age of the previous snapshot before we drop
+            // it. Useful diagnostic on SIGHUP-triggered refreshes —
+            // operators can see how stale the rotated-out config was.
+            const auto prev = tls_ctx->ech_config().load();
+            const auto now  = std::chrono::system_clock::now();
+            if (from_bootstrap &&
+                prev.fetched_at.time_since_epoch().count() > 0) {
+                const auto age_h = std::chrono::duration_cast<
+                    std::chrono::hours>(now - prev.fetched_at);
+                std::cout << "ech: refreshed config — previous was "
+                          << age_h.count() << "h old" << std::endl;
+            }
+
             cloak::tls::EchConfig::Snapshot snap;
             if (!c.upstream.ech_config_list.empty()) {
                 snap.bytes = std::make_shared<const std::vector<std::byte>>(
                     c.upstream.ech_config_list);
             }
             snap.outer_servername = c.upstream.ech_outer_servername;
+            if (from_bootstrap) snap.fetched_at = now;
             tls_ctx->ech_config().store(std::move(snap));
             std::cout << "reload: swapped ECH config ("
                       << c.upstream.ech_config_list.size() << " bytes)"
@@ -662,20 +697,23 @@ int main(int argc, char** argv) {
                                 std::span<const asio::ip::udp::endpoint>{bootstrap_eps},
                                 fresh_cfg.upstream.servername,
                                 fresh_cfg.upstream.timeout);
-                            if (bytes && !bytes->empty()) {
+                            const bool got_fresh = bytes && !bytes->empty();
+                            if (got_fresh) {
                                 fresh_cfg.upstream.ech_config_list = std::move(*bytes);
                             } else {
                                 std::cerr << "reload: ech bootstrap returned "
                                           << "no bytes; keeping previous "
                                           << "config" << std::endl;
                             }
-                            swap_ech(fresh_cfg);
+                            swap_ech(fresh_cfg, /*from_bootstrap=*/got_fresh);
                             co_return;
                         },
                         asio::detached);
                 } else {
-                    // Synchronous swap — no bootstrap to wait on.
-                    swap_ech(fresh_cfg);
+                    // Synchronous swap — no bootstrap to wait on. The
+                    // bytes came from inline TOML (or were left empty
+                    // by ech_enabled=false), so don't stamp fetched_at.
+                    swap_ech(fresh_cfg, /*from_bootstrap=*/false);
                 }
             } catch (const std::exception& e) {
                 std::cerr << "reload failed (" << e.what()
