@@ -73,8 +73,18 @@ SNI_FIELD = "tls.handshake.extensions_server_name"
 # ClientHello frames as a defence-in-depth check.
 
 
-def fail(msg: str) -> None:
+def fail(msg: str, *, dump: list[Path] | None = None) -> None:
     sys.stderr.write(f"verify_ech: {msg}\n")
+    for path in dump or ():
+        if path and path.exists():
+            sys.stderr.write(f"\n----- {path} -----\n")
+            try:
+                body = path.read_text(errors="replace")
+            except OSError as e:
+                body = f"(read failed: {e})\n"
+            sys.stderr.write(body)
+            if not body.endswith("\n"):
+                sys.stderr.write("\n")
     sys.exit(2)
 
 
@@ -352,8 +362,12 @@ def main() -> int:
         # tshark needs a moment to actually start capturing.
         time.sleep(2)
 
-        if not wait_for_port(args.listen_port, timeout_s=10):
-            fail(f"cloakdns never opened {args.listen_port}; see {cloak_log}")
+        # CI runners are noisy; ECH bootstrap may also need a TLS round-trip
+        # against the upstream before the listener binds. 30s is generous
+        # enough that a real bind failure dominates over scheduling jitter.
+        if not wait_for_port(args.listen_port, timeout_s=30):
+            fail(f"cloakdns never opened {args.listen_port}",
+                 dump=[cloak_log, tshark_log])
 
         print("sending probe queries via dig...", file=sys.stderr)
         for i, qname in enumerate(["example.com", "wikipedia.org", "github.com"]):
@@ -374,7 +388,8 @@ def main() -> int:
         time.sleep(1)
 
     if not pcap.exists() or pcap.stat().st_size == 0:
-        fail(f"tshark produced an empty pcap; see {tshark_log}")
+        fail("tshark produced an empty pcap",
+             dump=[tshark_log, cloak_log])
 
     handshakes = run_tshark_dump(pcap, args.tshark)
     if not handshakes:

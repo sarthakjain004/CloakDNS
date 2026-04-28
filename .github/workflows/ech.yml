@@ -114,15 +114,35 @@ jobs:
         run: cmake --build build-ech -j --target cloakdns
 
       - name: Live ECH wire test against defo.ie
+        id: wire-test
         env:
           LD_LIBRARY_PATH: ${{ env.OPENSSL_PREFIX }}/lib64:${{ env.OPENSSL_PREFIX }}/lib
         run: |
           # `any` works on Linux — the host's network stack picks the
           # right interface. Avoids the Windows-style numeric tshark IDs.
+          # --keep-tmp leaves the workdir behind so the on-failure step can
+          # dump cloakdns.log / tshark.log into the GH Actions output.
           sudo --preserve-env=LD_LIBRARY_PATH python3 tools/e2e/verify_ech.py \
             --cloakdns build-ech/cloakdns \
             --upstream defo.ie \
             --upstream-ip 213.108.108.101 \
             --ech-outer cover.defo.ie \
             --protocol doh \
-            --interface any
+            --interface any \
+            --keep-tmp
+
+      - name: Dump verify_ech workdir on failure
+        if: failure() && steps.wire-test.outcome == 'failure'
+        run: |
+          echo "::group::verify_ech workdirs"
+          for d in /tmp/cloakdns-ech-*; do
+            [ -d "$d" ] || continue
+            echo "=== $d ==="
+            ls -la "$d" || true
+            for f in "$d"/cloakdns.log "$d"/tshark.log; do
+              [ -f "$f" ] || continue
+              echo "--- $f ---"
+              sudo cat "$f" || true
+            done
+          done
+          echo "::endgroup::"
