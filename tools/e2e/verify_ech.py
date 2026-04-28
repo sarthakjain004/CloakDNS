@@ -160,8 +160,10 @@ ech_enabled          = true
 ech_outer_servername = "{ech_outer}"
 ech_config_list_b64  = "{ech_b64}"
 
-[blocklist]
-sources = []
+# Wire test only exercises the upstream encrypted leg; no blocklist
+# needed. Omitting [blocklist] entirely is fine -- config.cpp treats
+# a missing section as empty. (Writing `sources = []` would hit the
+# "must contain at least one path" validator, which we don't want.)
 
 [cache]
 max_entries = 100
