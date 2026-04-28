@@ -169,6 +169,10 @@ enum class EchStatus {
 // call before async_handshake completes — returns NotTried in that case.
 EchStatus ech_status(SSL* ssl) noexcept;
 
+// Stable JSONL field value — the analytics dashboard depends on these
+// strings. Used by query_log emission of `tls_ech_status`.
+std::string_view to_string(EchStatus s) noexcept;
+
 // Pull the server-supplied retry_configs (fresh ECHConfigList bytes) when
 // ech_status() returned FailedRetry. Returns nullopt when no retry config
 // is available, the build has no ECH support, or OpenSSL refused. The

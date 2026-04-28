@@ -203,6 +203,17 @@ EchStatus ech_status(SSL* ssl) noexcept {
 #endif
 }
 
+std::string_view to_string(EchStatus s) noexcept {
+    switch (s) {
+      case EchStatus::Success:     return "success";
+      case EchStatus::Greased:     return "greased";
+      case EchStatus::FailedRetry: return "failed_retry_available";
+      case EchStatus::Failed:      return "failed";
+      case EchStatus::NotTried:    return "not_tried";
+    }
+    return "not_tried";
+}
+
 std::optional<std::vector<std::byte>> ech_retry_config(SSL* ssl) noexcept {
 #ifdef CLOAKDNS_HAVE_ECH
     if (!ssl) return std::nullopt;
