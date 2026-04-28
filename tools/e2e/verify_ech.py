@@ -73,8 +73,18 @@ SNI_FIELD = "tls.handshake.extensions_server_name"
 # ClientHello frames as a defence-in-depth check.
 
 
-def fail(msg: str) -> None:
+def fail(msg: str, *, dump: list[Path] | None = None) -> None:
     sys.stderr.write(f"verify_ech: {msg}\n")
+    for path in dump or ():
+        if path and path.exists():
+            sys.stderr.write(f"\n----- {path} -----\n")
+            try:
+                body = path.read_text(errors="replace")
+            except OSError as e:
+                body = f"(read failed: {e})\n"
+            sys.stderr.write(body)
+            if not body.endswith("\n"):
+                sys.stderr.write("\n")
     sys.exit(2)
 
 
@@ -150,8 +160,10 @@ ech_enabled          = true
 ech_outer_servername = "{ech_outer}"
 ech_config_list_b64  = "{ech_b64}"
 
-[blocklist]
-sources = []
+# Wire test only exercises the upstream encrypted leg; no blocklist
+# needed. Omitting [blocklist] entirely is fine -- config.cpp treats
+# a missing section as empty. (Writing `sources = []` would hit the
+# "must contain at least one path" validator, which we don't want.)
 
 [cache]
 max_entries = 100
@@ -164,13 +176,35 @@ path = ""
     return p
 
 
-def wait_for_port(port: int, timeout_s: float) -> bool:
+def wait_for_dns_responder(port: int, timeout_s: float) -> bool:
+    """Wait until 127.0.0.1:port responds to a UDP DNS query.
+
+    We can't use TCP create_connection here because cloakdns listens
+    UDP-only (see main.cpp:server.listen_*). We send a minimal A-record
+    query for example.com and treat any datagram in response as
+    proof-of-life -- we don't care about the rcode, only that the
+    daemon's read loop is up and answering.
+    """
+    # 29-byte minimal RFC 1035 query:
+    #   header (12 bytes): id 0x4242, RD=1, qdcount=1, others 0
+    #   qname (13):        \x07example\x03com\x00
+    #   qtype (2): A      qclass (2): IN
+    query = (
+        b"\x42\x42\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+        b"\x07example\x03com\x00\x00\x01\x00\x01"
+    )
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         try:
-            with socket.create_connection(("127.0.0.1", port), 0.5):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                sock.settimeout(0.5)
+                sock.sendto(query, ("127.0.0.1", port))
+                sock.recvfrom(512)
                 return True
-        except OSError:
+            finally:
+                sock.close()
+        except (OSError, socket.timeout):
             time.sleep(0.2)
     return False
 
@@ -343,7 +377,10 @@ def main() -> int:
                   "-f", capture_filter,
                   "-w", str(pcap),
                   "-q"]
-    cloak_cmd = [args.cloakdns, "--config", str(toml_path)]
+    # cloakdns takes the config path as a positional arg, not --config.
+    # See main.cpp:load_or_default: argv[1] is treated as the config path
+    # (or a legacy bare-blocklist path) directly.
+    cloak_cmd = [args.cloakdns, str(toml_path)]
 
     print(f"starting tshark on {args.interface!r} (filter: {capture_filter!r})...", file=sys.stderr)
     with background_process(tshark_cmd, tshark_log) as tshark_proc, \
@@ -352,8 +389,12 @@ def main() -> int:
         # tshark needs a moment to actually start capturing.
         time.sleep(2)
 
-        if not wait_for_port(args.listen_port, timeout_s=10):
-            fail(f"cloakdns never opened {args.listen_port}; see {cloak_log}")
+        # CI runners are noisy; ECH bootstrap may also need a TLS round-trip
+        # against the upstream before the listener binds. 30s is generous
+        # enough that a real bind failure dominates over scheduling jitter.
+        if not wait_for_dns_responder(args.listen_port, timeout_s=30):
+            fail(f"cloakdns never answered UDP DNS on {args.listen_port}",
+                 dump=[cloak_log, tshark_log])
 
         print("sending probe queries via dig...", file=sys.stderr)
         for i, qname in enumerate(["example.com", "wikipedia.org", "github.com"]):
@@ -374,7 +415,8 @@ def main() -> int:
         time.sleep(1)
 
     if not pcap.exists() or pcap.stat().st_size == 0:
-        fail(f"tshark produced an empty pcap; see {tshark_log}")
+        fail("tshark produced an empty pcap",
+             dump=[tshark_log, cloak_log])
 
     handshakes = run_tshark_dump(pcap, args.tshark)
     if not handshakes:
