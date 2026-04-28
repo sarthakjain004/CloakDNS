@@ -1,60 +1,74 @@
-# CloakDNS blocklist sources. Edit to add / remove / reorder.
+# CloakDNS blocklist sources — Pi-hole + Firebog parity setup.
+#
+# A fresh Pi-hole install ships with exactly one adlist
+# (StevenBlack/hosts). Most Pi-hole users add the Firebog "ticked"
+# lists on top — those are the green-checkmark entries on
+# https://firebog.net , maintained by WaLLy3K, which the Pi-hole
+# community treats as the canonical curated set. We mirror that
+# exact set here so a `python tools/update_blocklists.py` produces
+# the same merged.txt a Pi-hole + Firebog-ticked install would.
+#
+# All Firebog entries are marked `optional = true` so users who
+# only want the Pi-hole default behaviour (StevenBlack alone) can
+# disable them with a single edit; defaults are required.
 #
 # format:
 #   "hosts"   — lines like `0.0.0.0 domain.tld`
 #   "adblock" — EasyList `||domain^` network rules only
 #   "plain"   — one domain per line
 
+# ============================================================
+# Pi-hole's single default adlist
+# ============================================================
+
 [[source]]
 name   = "stevenblack"
 url    = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
 format = "hosts"
 
+# ============================================================
+# Firebog "ticked" — Suspicious Lists
+# (https://firebog.net , green-checkmark entries)
+# ============================================================
+
 [[source]]
-name   = "oisd"
-url    = "https://big.oisd.nl/"
+name   = "firebog_kadhosts"
+url    = "https://raw.githubusercontent.com/PolishFiltersTeam/KADhosts/master/KADhosts.txt"
 format = "hosts"
+optional = true
 
 [[source]]
-name   = "easyprivacy"
-url    = "https://easylist.to/easylist/easyprivacy.txt"
-format = "adblock"
-
-[[source]]
-name   = "easylist"
-url    = "https://easylist.to/easylist/easylist.txt"
-format = "adblock"
-
-[[source]]
-name   = "peter_lowe"
-url    = "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=plaintext"
+name   = "firebog_fademind_spam"
+url    = "https://raw.githubusercontent.com/FadeMind/hosts.extras/master/add.Spam/hosts"
 format = "hosts"
+optional = true
 
 [[source]]
-name   = "nextdns_cname"
-url    = "https://raw.githubusercontent.com/nextdns/cname-cloaking-blocklist/master/domains"
+name   = "firebog_w3kbl"
+url    = "https://v.firebog.net/hosts/static/w3kbl.txt"
 format = "plain"
+optional = true
 
-# --- Optional aggregator feeds (reasonably well-vetted, lower
-# false-positive risk than the larger "ultimate" lists). Comment out
-# any whose policy you don't agree with.
+# ============================================================
+# Firebog "ticked" — Advertising Lists
+# ============================================================
 
 [[source]]
-name   = "hagezi_light"
-url    = "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/light.txt"
+name   = "adaway"
+url    = "https://adaway.org/hosts.txt"
 format = "hosts"
 optional = true
 
 [[source]]
-name   = "1hosts_lite"
-url    = "https://raw.githubusercontent.com/badmojr/1Hosts/master/Lite/hosts.txt"
-format = "hosts"
+name   = "firebog_adguarddns"
+url    = "https://v.firebog.net/hosts/AdguardDNS.txt"
+format = "plain"
 optional = true
 
 [[source]]
-name   = "adguard_sdn_filter"
-url    = "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt"
-format = "adblock"
+name   = "firebog_admiral"
+url    = "https://v.firebog.net/hosts/Admiral.txt"
+format = "plain"
 optional = true
 
 [[source]]
@@ -64,25 +78,146 @@ format = "hosts"
 optional = true
 
 [[source]]
-name   = "someonewhocares"
-url    = "https://someonewhocares.org/hosts/zero/hosts"
+name   = "firebog_easylist"
+url    = "https://v.firebog.net/hosts/Easylist.txt"
+format = "plain"
+optional = true
+
+[[source]]
+name   = "peter_lowe"
+url    = "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=hosts&showintro=0&mimetype=plaintext"
 format = "hosts"
 optional = true
 
 [[source]]
-name   = "disconnect_simple_tracking"
-url    = "https://raw.githubusercontent.com/disconnectme/disconnect-tracking-protection/master/services.json"
-format = "plain"
+name   = "firebog_fademind_uncheckyads"
+url    = "https://raw.githubusercontent.com/FadeMind/hosts.extras/master/UncheckyAds/hosts"
+format = "hosts"
 optional = true
-
-# --- CNAME cloaking — researcher-curated complementary feeds ---
 
 [[source]]
-name   = "ublock_cname_cloaking"
-url    = "https://raw.githubusercontent.com/AdguardTeam/cname-trackers/master/data/combined_disguised_trackers_justdomains.txt"
+name   = "hostsvn"
+url    = "https://raw.githubusercontent.com/bigdargon/hostsVN/master/hosts"
+format = "hosts"
+optional = true
+
+# ============================================================
+# Firebog "ticked" — Tracking & Telemetry
+# ============================================================
+
+[[source]]
+name   = "firebog_easyprivacy"
+url    = "https://v.firebog.net/hosts/Easyprivacy.txt"
 format = "plain"
 optional = true
 
-# anudeepND/blacklist removed 2026-04 — upstream returned 404 (cname.txt
-# no longer in the repo). The AdguardTeam/cname-trackers feed above
-# covers the same use case with active maintenance.
+[[source]]
+name   = "firebog_prigent_ads"
+url    = "https://v.firebog.net/hosts/Prigent-Ads.txt"
+format = "plain"
+optional = true
+
+[[source]]
+name   = "firebog_2o7net"
+url    = "https://raw.githubusercontent.com/FadeMind/hosts.extras/master/add.2o7Net/hosts"
+format = "hosts"
+optional = true
+
+[[source]]
+name   = "windowsspyblocker"
+url    = "https://raw.githubusercontent.com/crazy-max/WindowsSpyBlocker/master/data/hosts/spy.txt"
+format = "hosts"
+optional = true
+
+[[source]]
+name   = "frogeye_firstparty_trackers"
+url    = "https://hostfiles.frogeye.fr/firstparty-trackers-hosts.txt"
+format = "hosts"
+optional = true
+
+# ============================================================
+# Firebog "ticked" — Malicious Lists
+# ============================================================
+
+[[source]]
+name   = "dandelionsprout_antimalware"
+url    = "https://raw.githubusercontent.com/DandelionSprout/adfilt/master/Alternate%20versions%20Anti-Malware%20List/AntiMalwareHosts.txt"
+format = "hosts"
+optional = true
+
+[[source]]
+name   = "firebog_prigent_crypto"
+url    = "https://v.firebog.net/hosts/Prigent-Crypto.txt"
+format = "plain"
+optional = true
+
+[[source]]
+name   = "firebog_fademind_risk"
+url    = "https://raw.githubusercontent.com/FadeMind/hosts.extras/master/add.Risk/hosts"
+format = "hosts"
+optional = true
+
+[[source]]
+name   = "phishing_army"
+url    = "https://phishing.army/download/phishing_army_blocklist_extended.txt"
+format = "plain"
+optional = true
+
+[[source]]
+name   = "notrack_malware"
+url    = "https://gitlab.com/quidsup/notrack-blocklists/raw/master/notrack-malware.txt"
+format = "plain"
+optional = true
+
+[[source]]
+name   = "firebog_rpilist_malware"
+url    = "https://v.firebog.net/hosts/RPiList-Malware.txt"
+format = "plain"
+optional = true
+
+[[source]]
+name   = "firebog_rpilist_phishing"
+url    = "https://v.firebog.net/hosts/RPiList-Phishing.txt"
+format = "plain"
+optional = true
+
+[[source]]
+name   = "spam404"
+url    = "https://raw.githubusercontent.com/Spam404/lists/master/main-blacklist.txt"
+format = "plain"
+optional = true
+
+[[source]]
+name   = "stalkerware_indicators"
+url    = "https://raw.githubusercontent.com/AssoEchap/stalkerware-indicators/master/generated/hosts"
+format = "hosts"
+optional = true
+
+[[source]]
+name   = "urlhaus"
+url    = "https://urlhaus.abuse.ch/downloads/hostfile/"
+format = "hosts"
+optional = true
+
+# ============================================================
+# Firebog "ticked" — Other (cryptominers etc)
+# ============================================================
+
+# zerodot1 CoinBlockerLists removed 2026-04: the GitLab Pages host
+# now requires authentication, so the URL Firebog references returns
+# 403 to anonymous fetches. Re-add when upstream restores public
+# access.
+
+# ============================================================
+# Removed (not part of Pi-hole's default OR Firebog's ticked set):
+#   - oisd                        (Firebog has it but unticked by default)
+#   - hagezi_light                (Hagezi is upstream-of-OISD; unticked)
+#   - 1hosts_lite                 (1Hosts variants are unticked)
+#   - nextdns_cname               (NextDNS-specific feed)
+#   - ublock_cname_cloaking       (AdGuardTeam feed; not in Firebog)
+#   - adguard_sdn_filter          (AdGuard public DNS filter)
+#   - someonewhocares             (notoriously aggressive; not in Firebog)
+#   - disconnect_simple_tracking  (browser-format, parser-incompatible)
+# Each can be re-enabled by uncommenting and adding `optional = true`.
+# This file now mirrors exactly what `pihole -g` against Firebog-tick
+# would build.
