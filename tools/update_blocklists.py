@@ -111,6 +111,16 @@ NEVER_BLOCK: frozenset[str] = frozenset({
     "teams.microsoft.com", "microsoftonline.com",
     "onedrive.live.com", "sharepoint.com",
     "xbox.com",
+    "visualstudio.com", "marketplace.visualstudio.com",
+    "dev.azure.com", "azure.com",
+    "azureedge.net",                  # Azure Front Door / Microsoft CDN
+    "azurewebsites.net",              # Azure App Service apps
+    "azurefd.net",                    # Azure Front Door custom domains
+    "trafficmanager.net",             # Azure Traffic Manager DNS LB
+    "cloudapp.net",                   # Azure VMs / cloud services
+    "msn.com", "www.msn.com",         # Edge new-tab default
+    "hotmail.com", "windows.net",
+    "nuget.org", "www.nuget.org",     # .NET package registry
     "apple.com", "www.apple.com",
     "icloud.com", "www.icloud.com",
     "mzstatic.com",                   # Apple CDN
