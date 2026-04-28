@@ -63,6 +63,94 @@ DEFAULT_SOURCES: tuple[Source, ...] = (
 # ---- Parsers ---------------------------------------------------------------
 
 
+# Hardcoded never-block list — domains that some upstream blocklist
+# sources erroneously include but blocking would obviously break user
+# workflow. Filtered out at merge time so they never reach merged.txt.
+# CloakDNS uses suffix matching, so listing `google.com` here drops
+# only the exact apex; `*.google.com` rules from upstream still apply
+# (the priority tiers cover the actual tracker subdomains by hand).
+#
+# Conservative on purpose: only domains where blocking is clearly
+# wrong, not anything debatable. Add to this list when you find a new
+# false-positive — don't paper over via the runtime allowlist.
+NEVER_BLOCK: frozenset[str] = frozenset({
+    # Google end-user services
+    "google.com", "www.google.com", "accounts.google.com",
+    "mail.google.com", "drive.google.com", "docs.google.com",
+    "calendar.google.com", "photos.google.com", "play.google.com",
+    "translate.google.com", "maps.google.com", "news.google.com",
+    "clients2.google.com", "clients4.google.com", "clients5.google.com",
+    "googleapis.com", "content-autofill.googleapis.com",
+    "oauthaccountmanager.googleapis.com", "ckintersect-pa.googleapis.com",
+    "optimizationguide-pa.googleapis.com", "update.googleapis.com",
+    "safebrowsing.googleapis.com", "safebrowsing.google.com",
+    "gstatic.com", "www.gstatic.com",
+    "googleusercontent.com",          # Drive / Photos / Sites content
+    "ggpht.com",                      # YouTube avatars / Google CDN
+    "gvt1.com", "gvt2.com",           # Google Update Service
+    # YouTube — apex blocks break video playback (CDN is googlevideo.com)
+    "youtube.com", "www.youtube.com", "m.youtube.com",
+    "accounts.youtube.com", "studio.youtube.com",
+    "ytimg.com", "i.ytimg.com",
+    "googlevideo.com",                # YouTube video CDN — breaks YT
+    "youtube-nocookie.com",           # privacy-mode embeds
+    # Code / collaboration
+    "github.com", "api.github.com", "www.github.com",
+    "githubusercontent.com", "raw.githubusercontent.com",
+    "gitlab.com", "bitbucket.org", "stackoverflow.com",
+    "stackexchange.com",
+    # Messaging / chat
+    "whatsapp.com", "web.whatsapp.com", "www.whatsapp.com",
+    "telegram.org", "web.telegram.org",
+    "signal.org",
+    "slack.com", "discord.com", "discordapp.com",
+    "zoom.us",
+    # OS / app distribution + updates
+    "microsoft.com", "www.microsoft.com",
+    "live.com", "outlook.com", "office.com", "office365.com",
+    "teams.microsoft.com", "microsoftonline.com",
+    "onedrive.live.com", "sharepoint.com",
+    "xbox.com",
+    "apple.com", "www.apple.com",
+    "icloud.com", "www.icloud.com",
+    "mzstatic.com",                   # Apple CDN
+    "ubuntu.com", "archlinux.org", "kernel.org",
+    "code.visualstudio.com", "update.code.visualstudio.com",
+    # Cloud / CDN apexes — bare-apex blocks suffix-match half the web
+    "cloudflare.com", "www.cloudflare.com",
+    "amazon.com", "www.amazon.com", "aws.amazon.com",
+    "amazonaws.com", "s3.amazonaws.com",
+    "cloudfront.net", "akamaized.net", "akamai.net", "akamaihd.net",
+    "fastly.net", "fastlylb.net",
+    # Search engines (other than Google)
+    "bing.com", "www.bing.com",
+    "duckduckgo.com", "www.duckduckgo.com",
+    # Social — tracking subdomains stay blocked via specific entries,
+    # but bare apexes are user destinations
+    "twitter.com", "x.com", "t.co",
+    "reddit.com", "www.reddit.com",
+    "facebook.com", "www.facebook.com", "fbcdn.net", "fbsbx.com",
+    "instagram.com", "www.instagram.com", "cdninstagram.com",
+    "linkedin.com", "www.linkedin.com",
+    "tiktok.com", "www.tiktok.com",
+    "pinterest.com", "tumblr.com",
+    "twitch.tv",
+    "wikipedia.org", "en.wikipedia.org",
+    # Streaming
+    "netflix.com", "www.netflix.com",
+    "spotify.com", "www.spotify.com",
+    # Payments
+    "paypal.com", "www.paypal.com",
+    "stripe.com", "checkout.stripe.com",
+    # Dev workflows
+    "npmjs.com", "registry.npmjs.org", "pypi.org", "files.pythonhosted.org",
+    "docker.com", "hub.docker.com",
+    "adobe.com", "www.adobe.com",
+    # Content / publishing
+    "medium.com", "substack.com",
+})
+
+
 _DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)+$")
 
 
@@ -96,7 +184,27 @@ def parse_hosts(text: str) -> Iterable[str]:
 
 def parse_adblock(text: str) -> Iterable[str]:
     """EasyList format. We only pick up `||domain^` network-filter rules;
-    element-hiding selectors, regex rules, and exceptions are ignored."""
+    element-hiding selectors, regex rules, and exceptions are ignored.
+
+    DNS-blocking can only enforce whole-domain rules. Two classes of
+    adblock rule must be **dropped**, not coerced into apex matches:
+
+    1. **Path-restricted rules** (`||twitter.com/i/jot$third-party`).
+       The original intent is "block /i/jot only"; reducing to apex
+       blocks the entire site. This is how `twitter.com`, `reddit.com`,
+       and similar consumer sites slipped into prior merged.txt
+       outputs.
+    2. **Wildcard-prefixed rules** (`||*.google.com^`, `||.x.com^`).
+       Adblock semantics require at least one subdomain label; the
+       apex itself shouldn't match. Stripping the `*` / `.` produced a
+       bare apex rule, and CloakDNS's suffix matcher then matched the
+       apex too — turning subdomain-only rules into whole-site blocks.
+       This is how `google.com` ended up in merged.txt.
+
+    Domain-only rules (`||doubleclick.net^`) and option-restricted
+    rules without paths (`||doubleclick.net^$third-party`) are kept,
+    since their intent maps cleanly to DNS-level blocking.
+    """
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith(("!", "[", "#")):
@@ -105,12 +213,37 @@ def parse_adblock(text: str) -> Iterable[str]:
             continue
         if not line.startswith("||"):  # only simple domain rules
             continue
-        # Strip leading "||" and trailing options "^$third-party,..."
+        # Strip leading "||"
         body = line[2:]
-        m = re.match(r"^([a-z0-9.\-_*]+)", body, re.IGNORECASE)
-        if not m:
+        # Find the host-pattern terminator: ^ (host separator), $ (start
+        # of options), or / (start of path). If `/` comes first, the
+        # rule is path-restricted and must be dropped — DNS can't
+        # enforce paths and reducing to apex would block the whole
+        # site.
+        end_idx = len(body)
+        first_delim = None
+        for ch in "^$/":
+            i = body.find(ch)
+            if i >= 0 and i < end_idx:
+                end_idx = i
+                first_delim = ch
+        if first_delim == "/":
             continue
-        candidate = m.group(1).rstrip(".").replace("*", "").lstrip(".")
+        # If the host ends at `^`, anything after `^` other than `$options`
+        # is a path filter (e.g. `||twitter.com^*/log.json` blocks only
+        # log.json under any path). Drop these too.
+        if first_delim == "^":
+            tail = body[end_idx + 1:]
+            if tail and not tail.startswith("$"):
+                continue
+        candidate = body[:end_idx]
+        # Reject wildcard-prefix rules; an adblock `*` represents at
+        # least one label and the apex itself should not match.
+        if "*" in candidate or candidate.startswith("."):
+            continue
+        candidate = candidate.rstrip(".")
+        if not candidate:
+            continue
         if d := _punycode(candidate):
             yield d
 
@@ -237,6 +370,8 @@ def merge(fetches: list[Fetch], sources: list[Source],
         parser = _PARSERS[src.format]
         count_before = len(domains)
         for d in parser(f.text):
+            if d in NEVER_BLOCK:
+                continue
             domains.add(d)
         added = len(domains) - count_before
         by_source.append({

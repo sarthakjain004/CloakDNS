@@ -1,0 +1,37 @@
+# Allowlist for major end-user services that some merged blocklist
+# sources erroneously include. Allowlist takes priority over blocklist.
+# Hosts-file format: "<placeholder-IP> <hostname>".
+0.0.0.0 google.com
+0.0.0.0 accounts.google.com
+0.0.0.0 www.google.com
+0.0.0.0 www.google.co.in
+0.0.0.0 google.co.in
+0.0.0.0 mail.google.com
+0.0.0.0 drive.google.com
+0.0.0.0 docs.google.com
+0.0.0.0 clients2.google.com
+0.0.0.0 clients4.google.com
+0.0.0.0 clients5.google.com
+0.0.0.0 gstatic.com
+0.0.0.0 www.gstatic.com
+0.0.0.0 googleapis.com
+0.0.0.0 content-autofill.googleapis.com
+0.0.0.0 oauthaccountmanager.googleapis.com
+0.0.0.0 optimizationguide-pa.googleapis.com
+0.0.0.0 ckintersect-pa.googleapis.com
+0.0.0.0 update.googleapis.com
+0.0.0.0 safebrowsing.googleapis.com
+0.0.0.0 safebrowsing.google.com
+0.0.0.0 youtube.com
+0.0.0.0 www.youtube.com
+0.0.0.0 accounts.youtube.com
+0.0.0.0 ytimg.com
+0.0.0.0 i.ytimg.com
+0.0.0.0 github.com
+0.0.0.0 api.github.com
+0.0.0.0 githubusercontent.com
+0.0.0.0 raw.githubusercontent.com
+0.0.0.0 whatsapp.com
+0.0.0.0 web.whatsapp.com
+0.0.0.0 cloudflare.com
+0.0.0.0 www.cloudflare.com
