@@ -1,4 +1,5 @@
 #include "cloakdns/paths.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <gtest/gtest.h>
 
@@ -10,21 +11,21 @@ using namespace cloak;
 namespace {
 
 struct TempDir {
-    std::filesystem::path path;
+    fs::path path;
     TempDir()
-        : path(std::filesystem::temp_directory_path() /
+        : path(fs::temp_directory_path() /
                ("cloak_paths_" + std::to_string(std::rand()))) {
-        std::filesystem::create_directories(path);
+        fs::create_directories(path);
     }
     ~TempDir() {
-        std::error_code ec;
-        std::filesystem::remove_all(path, ec);
+        error_code ec;
+        fs::remove_all(path, ec);
     }
     TempDir(const TempDir&) = delete;
     TempDir& operator=(const TempDir&) = delete;
 };
 
-void touch(const std::filesystem::path& p) {
+void touch(const fs::path& p) {
     std::ofstream{p} << "";
 }
 
@@ -34,7 +35,7 @@ TEST(Paths, DefaultConfigDirIsNonEmpty) {
     const auto d = default_config_dir();
     EXPECT_FALSE(d.empty());
 #ifdef _WIN32
-    EXPECT_NE(d.string().find("CloakDNS"), std::string::npos);
+    EXPECT_NE(d.string().find("CloakDNS"), string::npos);
 #else
     EXPECT_EQ(d.string(), "/etc/cloakdns");
 #endif
@@ -60,8 +61,8 @@ TEST(Paths, MissingEverywhereReturnsNullopt) {
     // %ProgramData%\CloakDNS\cloakdns.toml or ./cloakdns.toml, this
     // test isn't meaningful — skip rather than assert nullopt. Most
     // dev machines won't have those.
-    if (std::filesystem::exists(default_config_dir() / "cloakdns.toml") ||
-        std::filesystem::exists("cloakdns.toml")) {
+    if (fs::exists(default_config_dir() / "cloakdns.toml") ||
+        fs::exists("cloakdns.toml")) {
         GTEST_SKIP() << "pre-existing config interferes with this test";
     }
     const auto resolved = find_config_path(argv0.string());

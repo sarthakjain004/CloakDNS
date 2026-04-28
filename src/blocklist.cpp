@@ -1,4 +1,5 @@
 #include "cloakdns/blocklist.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <cctype>
 #include <fstream>
@@ -8,8 +9,8 @@
 namespace cloak {
 namespace {
 
-std::string to_lower_ascii(std::string_view s) {
-    std::string out;
+string to_lower_ascii(string_view s) {
+    string out;
     out.reserve(s.size());
     for (char c : s) {
         if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + ('a' - 'A'));
@@ -23,7 +24,7 @@ bool is_valid_domain_char(char c) {
            c == '-' || c == '.' || c == '_';
 }
 
-bool is_valid_domain(std::string_view s) {
+bool is_valid_domain(string_view s) {
     if (s.empty() || s.size() > 255) return false;
     if (s.front() == '.' || s.back() == '.') return false;
     bool has_letter_or_digit = false;
@@ -37,30 +38,30 @@ bool is_valid_domain(std::string_view s) {
 
 } // namespace
 
-void Blocklist::add_exact(std::string_view qname) {
+void Blocklist::add_exact(string_view qname) {
     auto s = to_lower_ascii(qname);
     if (!is_valid_domain(s)) return;
     exact_.insert(std::move(s));
 }
 
-void Blocklist::add_suffix(std::string_view domain) {
+void Blocklist::add_suffix(string_view domain) {
     auto s = to_lower_ascii(domain);
     if (!is_valid_domain(s)) return;
     suffix_.insert(std::move(s));
 }
 
-void Blocklist::add_regex(std::string pattern) {
+void Blocklist::add_regex(string pattern) {
     std::regex rx{pattern, std::regex::ECMAScript | std::regex::optimize};
     regex_.emplace_back(std::move(pattern), std::move(rx));
 }
 
-void Blocklist::add_allow_exact(std::string_view qname) {
+void Blocklist::add_allow_exact(string_view qname) {
     auto s = to_lower_ascii(qname);
     if (!is_valid_domain(s)) return;
     allow_exact_.insert(std::move(s));
 }
 
-void Blocklist::add_allow_suffix(std::string_view domain) {
+void Blocklist::add_allow_suffix(string_view domain) {
     auto s = to_lower_ascii(domain);
     if (!is_valid_domain(s)) return;
     allow_suffix_.insert(std::move(s));
@@ -71,18 +72,18 @@ namespace {
 // Generic hosts-file loader. `add_one` returns true when the token was
 // added (new entry); used by both the blocklist and allowlist paths.
 template <class Add>
-size_t load_hosts_into(const std::filesystem::path& path, Add add_one) {
+size_t load_hosts_into(const fs::path& path, Add add_one) {
     std::ifstream in{path};
     if (!in) {
-        throw std::runtime_error{"cannot open list file: " + path.string()};
+        throw runtime_error{"cannot open list file: " + path.string()};
     }
     size_t added = 0;
-    std::string line;
+    string line;
     while (std::getline(in, line)) {
-        if (const auto hash = line.find('#'); hash != std::string::npos)
+        if (const auto hash = line.find('#'); hash != string::npos)
             line.resize(hash);
         std::istringstream iss{line};
-        std::string token;
+        string token;
         bool first = true;
         while (iss >> token) {
             if (first) { first = false; continue; }  // skip IP
@@ -94,16 +95,16 @@ size_t load_hosts_into(const std::filesystem::path& path, Add add_one) {
 
 } // namespace
 
-size_t Blocklist::load_hosts_file(const std::filesystem::path& path) {
-    return load_hosts_into(path, [&](const std::string& tok) {
+size_t Blocklist::load_hosts_file(const fs::path& path) {
+    return load_hosts_into(path, [&](const string& tok) {
         const auto before = suffix_.size();
         add_suffix(tok);
         return suffix_.size() != before;
     });
 }
 
-size_t Blocklist::load_allowlist_file(const std::filesystem::path& path) {
-    return load_hosts_into(path, [&](const std::string& tok) {
+size_t Blocklist::load_allowlist_file(const fs::path& path) {
+    return load_hosts_into(path, [&](const string& tok) {
         const auto before = allow_suffix_.size();
         add_allow_suffix(tok);
         return allow_suffix_.size() != before;
@@ -118,13 +119,13 @@ namespace {
 // from pos=0 (full qname) outward guarantees we hit the longest one
 // first.
 template <class Set>
-auto find_suffix_match(const Set& set, std::string_view qname) {
+auto find_suffix_match(const Set& set, string_view qname) {
     size_t pos = 0;
     while (pos <= qname.size()) {
-        if (auto it = set.find(std::string{qname.substr(pos)}); it != set.end())
+        if (auto it = set.find(string{qname.substr(pos)}); it != set.end())
             return it;
         const auto dot = qname.find('.', pos);
-        if (dot == std::string_view::npos) break;
+        if (dot == string_view::npos) break;
         pos = dot + 1;
     }
     return set.end();
@@ -132,14 +133,14 @@ auto find_suffix_match(const Set& set, std::string_view qname) {
 
 } // namespace
 
-bool Blocklist::allowed(std::string_view qname) const {
+bool Blocklist::allowed(string_view qname) const {
     if (qname.empty()) return false;
-    if (allow_exact_.find(std::string{qname}) != allow_exact_.end())
+    if (allow_exact_.find(string{qname}) != allow_exact_.end())
         return true;
     return find_suffix_match(allow_suffix_, qname) != allow_suffix_.end();
 }
 
-MatchResult Blocklist::match(std::string_view qname) const {
+MatchResult Blocklist::match(string_view qname) const {
     if (qname.empty()) return {};
 
     // Longest-match-wins between allow and block rules. Without this,
@@ -154,9 +155,9 @@ MatchResult Blocklist::match(std::string_view qname) const {
     // suffix rules of the same length to break ties deterministically.
 
     // Compute the strongest-matching allow rule (longest hit).
-    std::size_t allow_len = 0;
+    size_t allow_len = 0;
     bool allow_exact_hit = false;
-    if (auto it = allow_exact_.find(std::string{qname}); it != allow_exact_.end()) {
+    if (auto it = allow_exact_.find(string{qname}); it != allow_exact_.end()) {
         allow_len = it->size();
         allow_exact_hit = true;
     }
@@ -166,8 +167,8 @@ MatchResult Blocklist::match(std::string_view qname) const {
 
     // Compute the strongest-matching deny rule (longest hit).
     MatchResult deny{};
-    std::size_t deny_len = 0;
-    if (auto it = exact_.find(std::string{qname}); it != exact_.end()) {
+    size_t deny_len = 0;
+    if (auto it = exact_.find(string{qname}); it != exact_.end()) {
         deny_len = it->size();
         deny = {true, *it, MatchKind::Exact};
     }
@@ -180,7 +181,7 @@ MatchResult Blocklist::match(std::string_view qname) const {
     }
     if (deny_len == 0) {
         for (const auto& [pattern, rx] : regex_) {
-            if (std::regex_search(std::string{qname}, rx)) {
+            if (std::regex_search(string{qname}, rx)) {
                 deny_len = pattern.size();
                 deny = {true, pattern, MatchKind::Regex};
                 break;

@@ -1,4 +1,5 @@
 #include "cloakdns/etld.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <gtest/gtest.h>
 

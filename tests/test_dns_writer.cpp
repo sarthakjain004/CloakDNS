@@ -1,5 +1,6 @@
 #include "cloakdns/dns_parser.hpp"
 #include "cloakdns/dns_writer.hpp"
+#include "cloakdns/aliases.hpp"
 #include "fixtures.hpp"
 
 #include <gtest/gtest.h>
@@ -14,12 +15,12 @@ using namespace cloak::fixtures;
 namespace {
 
 template <size_t N>
-std::span<const std::byte> as_span(const std::array<std::byte, N>& a) {
-    return std::span<const std::byte>{a.data(), a.size()};
+span<const byte> as_span(const array<byte, N>& a) {
+    return span<const byte>{a.data(), a.size()};
 }
 
-std::span<const std::byte> as_span(const std::vector<std::byte>& v) {
-    return std::span<const std::byte>{v.data(), v.size()};
+span<const byte> as_span(const vector<byte>& v) {
+    return span<const byte>{v.data(), v.size()};
 }
 
 } // namespace
@@ -91,7 +92,7 @@ TEST(DnsWriter, BlockResponseAnswerRecord) {
     EXPECT_EQ(a.ttl, 300u);
     ASSERT_EQ(a.rdata.size(), 4u);
     for (size_t i = 0; i < 4; ++i)
-        EXPECT_EQ(std::to_integer<uint8_t>(a.rdata[i]), 0);
+        EXPECT_EQ(to_integer<uint8_t>(a.rdata[i]), 0);
 }
 
 TEST(DnsWriter, BlockResponseLength) {
@@ -128,7 +129,7 @@ TEST(DnsWriter, BlockAaaaResponseShape) {
     EXPECT_EQ(a.ttl, 300u);
     ASSERT_EQ(a.rdata.size(), 16u);
     for (size_t i = 0; i < 16; ++i)
-        EXPECT_EQ(std::to_integer<uint8_t>(a.rdata[i]), 0);
+        EXPECT_EQ(to_integer<uint8_t>(a.rdata[i]), 0);
 
     EXPECT_EQ(resp.size(), parsed.question_section_end + 28);
 }

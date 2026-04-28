@@ -5,6 +5,7 @@
 // path through OpenSSL.
 
 #include "cloakdns/tls.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <openssl/bn.h>
 #include <openssl/ec.h>
@@ -23,8 +24,8 @@ namespace {
 struct EvpPkeyFree { void operator()(EVP_PKEY* p) const { EVP_PKEY_free(p); } };
 struct X509Free    { void operator()(X509*    p) const { X509_free(p);    } };
 
-using PkeyPtr = std::unique_ptr<EVP_PKEY, EvpPkeyFree>;
-using CertPtr = std::unique_ptr<X509, X509Free>;
+using PkeyPtr = unique_ptr<EVP_PKEY, EvpPkeyFree>;
+using CertPtr = unique_ptr<X509, X509Free>;
 
 PkeyPtr make_p256_key() {
     EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr);
@@ -68,7 +69,7 @@ TEST(Tls, ComputeSpkiPinHasExpectedShape) {
     auto cert = make_self_signed_cert(pkey.get());
     ASSERT_TRUE(cert);
 
-    const std::string pin = cloak::tls::compute_spki_pin(cert.get());
+    const string pin = cloak::tls::compute_spki_pin(cert.get());
 
     // "sha256/" prefix + 44 chars (32-byte hash → 44 base64 chars including
     // a trailing '=').
@@ -85,8 +86,8 @@ TEST(Tls, ComputeSpkiPinIsStableAcrossCalls) {
     auto cert = make_self_signed_cert(pkey.get());
     ASSERT_TRUE(cert);
 
-    const std::string a = cloak::tls::compute_spki_pin(cert.get());
-    const std::string b = cloak::tls::compute_spki_pin(cert.get());
+    const string a = cloak::tls::compute_spki_pin(cert.get());
+    const string b = cloak::tls::compute_spki_pin(cert.get());
     EXPECT_EQ(a, b);
 }
 
@@ -119,13 +120,13 @@ TEST(Tls, ContextConstructsAndOwnsCtx) {
 // --- base64 decoding for the ECH config_list path ---------------------
 
 namespace {
-std::string bytes_to_hex(const std::vector<std::byte>& bs) {
-    std::string out;
+string bytes_to_hex(const vector<byte>& bs) {
+    string out;
     out.reserve(bs.size() * 2);
     static const char* h = "0123456789abcdef";
     for (auto b : bs) {
-        out.push_back(h[(std::to_integer<std::uint8_t>(b) >> 4) & 0xF]);
-        out.push_back(h[std::to_integer<std::uint8_t>(b) & 0xF]);
+        out.push_back(h[(to_integer<uint8_t>(b) >> 4) & 0xF]);
+        out.push_back(h[to_integer<uint8_t>(b) & 0xF]);
     }
     return out;
 }
@@ -196,21 +197,21 @@ TEST(TlsEchConfig, DefaultStateIsDisabled) {
 
 TEST(TlsEchConfig, StoreThenLoadRoundTrips) {
     cloak::tls::EchConfig cfg;
-    auto bytes = std::make_shared<const std::vector<std::byte>>(
-        std::vector<std::byte>{std::byte{0xfe}, std::byte{0x0d}, std::byte{0x42}});
+    auto bytes = make_shared<const vector<byte>>(
+        vector<byte>{byte{0xfe}, byte{0x0d}, byte{0x42}});
     cfg.store({.bytes = bytes, .outer_servername = "cover.example"});
 
     EXPECT_TRUE(cfg.enabled());
     auto snap = cfg.load();
     ASSERT_NE(snap.bytes, nullptr);
     ASSERT_EQ(snap.bytes->size(), 3u);
-    EXPECT_EQ(std::to_integer<std::uint8_t>((*snap.bytes)[0]), 0xfeu);
+    EXPECT_EQ(to_integer<uint8_t>((*snap.bytes)[0]), 0xfeu);
     EXPECT_EQ(snap.outer_servername, "cover.example");
 }
 
 TEST(TlsEchConfig, EmptyVectorReportsDisabled) {
     cloak::tls::EchConfig cfg;
-    cfg.store({.bytes = std::make_shared<const std::vector<std::byte>>(),
+    cfg.store({.bytes = make_shared<const vector<byte>>(),
                .outer_servername = ""});
     EXPECT_FALSE(cfg.enabled());
 }
@@ -220,26 +221,26 @@ TEST(TlsEchConfig, OldSnapshotSurvivesSwap) {
     // handshake holds a snapshot taken before a SIGHUP swap, and that
     // snapshot's bytes must remain valid after the swap.
     cloak::tls::EchConfig cfg;
-    auto v1 = std::make_shared<const std::vector<std::byte>>(
-        std::vector<std::byte>{std::byte{0xaa}, std::byte{0xbb}});
+    auto v1 = make_shared<const vector<byte>>(
+        vector<byte>{byte{0xaa}, byte{0xbb}});
     cfg.store({.bytes = v1, .outer_servername = "v1"});
 
     auto held = cfg.load();        // simulates an in-flight handshake
 
-    auto v2 = std::make_shared<const std::vector<std::byte>>(
-        std::vector<std::byte>{std::byte{0xcc}});
+    auto v2 = make_shared<const vector<byte>>(
+        vector<byte>{byte{0xcc}});
     cfg.store({.bytes = v2, .outer_servername = "v2"});
 
     // The previously-loaded snapshot still resolves to v1's bytes.
     ASSERT_NE(held.bytes, nullptr);
     ASSERT_EQ(held.bytes->size(), 2u);
-    EXPECT_EQ(std::to_integer<std::uint8_t>((*held.bytes)[0]), 0xaau);
+    EXPECT_EQ(to_integer<uint8_t>((*held.bytes)[0]), 0xaau);
     EXPECT_EQ(held.outer_servername, "v1");
 
     // Subsequent reads see v2.
     auto fresh = cfg.load();
     ASSERT_EQ(fresh.bytes->size(), 1u);
-    EXPECT_EQ(std::to_integer<std::uint8_t>((*fresh.bytes)[0]), 0xccu);
+    EXPECT_EQ(to_integer<uint8_t>((*fresh.bytes)[0]), 0xccu);
     EXPECT_EQ(fresh.outer_servername, "v2");
 }
 
@@ -269,9 +270,9 @@ TEST(TlsEchValidate, EmptyBytesRejected) {
 TEST(TlsEchValidate, RandomBytesRejected) {
 #ifdef CLOAKDNS_HAVE_ECH
     // 32 bytes of pure noise should not parse as an ECHConfigList.
-    std::vector<std::byte> noise(32);
-    for (std::size_t i = 0; i < noise.size(); ++i)
-        noise[i] = std::byte{static_cast<std::uint8_t>(i ^ 0x5a)};
+    vector<byte> noise(32);
+    for (size_t i = 0; i < noise.size(); ++i)
+        noise[i] = byte{static_cast<uint8_t>(i ^ 0x5a)};
     auto err = cloak::tls::validate_ech_config_list(noise);
     EXPECT_TRUE(err.has_value())
         << "expected validator to reject random bytes; passed";
@@ -283,7 +284,7 @@ TEST(TlsEchValidate, RandomBytesRejected) {
 TEST(TlsEchValidate, BuildFlagPath) {
     // On a build without CLOAKDNS_HAVE_ECH, the validator returns
     // nullopt regardless — there's nothing to check. Document that.
-    std::vector<std::byte> noise(8, std::byte{0xff});
+    vector<byte> noise(8, byte{0xff});
 #ifdef CLOAKDNS_HAVE_ECH
     EXPECT_TRUE(cloak::tls::validate_ech_config_list(noise).has_value());
 #else

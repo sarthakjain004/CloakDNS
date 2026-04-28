@@ -1,4 +1,5 @@
 #include "cloakdns/dns_parser.hpp"
+#include "cloakdns/aliases.hpp"
 #include "fixtures.hpp"
 
 #include <gtest/gtest.h>
@@ -13,20 +14,20 @@ using namespace cloak::fixtures;
 namespace {
 
 template <size_t N>
-std::span<const std::byte> as_span(const std::array<std::byte, N>& a) {
-    return std::span<const std::byte>{a.data(), a.size()};
+span<const byte> as_span(const array<byte, N>& a) {
+    return span<const byte>{a.data(), a.size()};
 }
 
 // Minimal header with all-zero flags and user-specified counts.
-std::vector<std::byte> make_header(uint16_t qd, uint16_t an = 0,
+vector<byte> make_header(uint16_t qd, uint16_t an = 0,
                                    uint16_t ns = 0, uint16_t ar = 0) {
-    std::vector<std::byte> h(12);
-    h[0] = std::byte{0x00}; h[1] = std::byte{0x01};       // id
-    h[2] = std::byte{0x00}; h[3] = std::byte{0x00};       // flags
-    h[4] = std::byte{uint8_t(qd >> 8)}; h[5] = std::byte{uint8_t(qd & 0xff)};
-    h[6] = std::byte{uint8_t(an >> 8)}; h[7] = std::byte{uint8_t(an & 0xff)};
-    h[8] = std::byte{uint8_t(ns >> 8)}; h[9] = std::byte{uint8_t(ns & 0xff)};
-    h[10] = std::byte{uint8_t(ar >> 8)}; h[11] = std::byte{uint8_t(ar & 0xff)};
+    vector<byte> h(12);
+    h[0] = byte{0x00}; h[1] = byte{0x01};       // id
+    h[2] = byte{0x00}; h[3] = byte{0x00};       // flags
+    h[4] = byte{uint8_t(qd >> 8)}; h[5] = byte{uint8_t(qd & 0xff)};
+    h[6] = byte{uint8_t(an >> 8)}; h[7] = byte{uint8_t(an & 0xff)};
+    h[8] = byte{uint8_t(ns >> 8)}; h[9] = byte{uint8_t(ns & 0xff)};
+    h[10] = byte{uint8_t(ar >> 8)}; h[11] = byte{uint8_t(ar & 0xff)};
     return h;
 }
 
@@ -68,13 +69,13 @@ TEST(DnsParser, EdnsOptAppearsInAdditional) {
 
 TEST(DnsParser, QnameIsLowercased) {
     // Same as kExampleQueryEdns but with "EXAMPLE" in uppercase.
-    auto pkt = std::vector<std::byte>(kExampleQueryEdns.begin(),
+    auto pkt = vector<byte>(kExampleQueryEdns.begin(),
                                       kExampleQueryEdns.end());
     for (size_t i = 13; i < 20; ++i) {   // offsets of "example"
-        const auto c = std::to_integer<uint8_t>(pkt[i]);
-        if (c >= 'a' && c <= 'z') pkt[i] = std::byte{uint8_t(c - 32)};
+        const auto c = to_integer<uint8_t>(pkt[i]);
+        if (c >= 'a' && c <= 'z') pkt[i] = byte{uint8_t(c - 32)};
     }
-    auto msg = parse(std::span<const std::byte>{pkt.data(), pkt.size()});
+    auto msg = parse(span<const byte>{pkt.data(), pkt.size()});
     EXPECT_EQ(msg.questions[0].qname, "example.com");
 }
 
@@ -111,34 +112,34 @@ TEST(DnsParser, ResponseFlagsDecoded) {
 // ---- negative tests (one per defensive cap) ----
 
 TEST(DnsParser, TruncatedHeaderThrows) {
-    std::array<std::byte, 5> pkt{};
-    EXPECT_THROW(parse(std::span<const std::byte>{pkt.data(), pkt.size()}),
+    array<byte, 5> pkt{};
+    EXPECT_THROW(parse(span<const byte>{pkt.data(), pkt.size()}),
                  ParseError);
 }
 
 TEST(DnsParser, TruncatedQuestionThrows) {
     // Header says QDCOUNT=1 but the question name has no terminator.
     auto pkt = make_header(1);
-    pkt.push_back(std::byte{0x07});
-    for (char c : "example") pkt.push_back(std::byte{uint8_t(c)}); // no \0
+    pkt.push_back(byte{0x07});
+    for (char c : "example") pkt.push_back(byte{uint8_t(c)}); // no \0
     pkt.pop_back();  // drop the NUL that for-loop added
-    EXPECT_THROW(parse(std::span<const std::byte>{pkt.data(), pkt.size()}),
+    EXPECT_THROW(parse(span<const byte>{pkt.data(), pkt.size()}),
                  ParseError);
 }
 
 TEST(DnsParser, ReservedLabelBitsThrow_10) {
     auto pkt = make_header(1);
-    pkt.push_back(std::byte{0x80});   // top two bits = 10 (reserved)
-    pkt.push_back(std::byte{0x00});
-    EXPECT_THROW(parse(std::span<const std::byte>{pkt.data(), pkt.size()}),
+    pkt.push_back(byte{0x80});   // top two bits = 10 (reserved)
+    pkt.push_back(byte{0x00});
+    EXPECT_THROW(parse(span<const byte>{pkt.data(), pkt.size()}),
                  ParseError);
 }
 
 TEST(DnsParser, ReservedLabelBitsThrow_01) {
     auto pkt = make_header(1);
-    pkt.push_back(std::byte{0x40});   // top two bits = 01 (reserved)
-    pkt.push_back(std::byte{0x00});
-    EXPECT_THROW(parse(std::span<const std::byte>{pkt.data(), pkt.size()}),
+    pkt.push_back(byte{0x40});   // top two bits = 01 (reserved)
+    pkt.push_back(byte{0x00});
+    EXPECT_THROW(parse(span<const byte>{pkt.data(), pkt.size()}),
                  ParseError);
 }
 
@@ -147,24 +148,24 @@ TEST(DnsParser, NameTooLongThrows) {
     // the 255-byte name cap even before a sixth label is needed.
     auto pkt = make_header(1);
     for (int i = 0; i < 5; ++i) {
-        pkt.push_back(std::byte{0x3f});  // label length 63
-        for (int j = 0; j < 63; ++j) pkt.push_back(std::byte{'a'});
+        pkt.push_back(byte{0x3f});  // label length 63
+        for (int j = 0; j < 63; ++j) pkt.push_back(byte{'a'});
     }
-    pkt.push_back(std::byte{0x00});       // terminator (unreached)
+    pkt.push_back(byte{0x00});       // terminator (unreached)
     // trailing qtype/qclass for shape; parser should throw before reading.
-    for (int i = 0; i < 4; ++i) pkt.push_back(std::byte{0x00});
-    EXPECT_THROW(parse(std::span<const std::byte>{pkt.data(), pkt.size()}),
+    for (int i = 0; i < 4; ++i) pkt.push_back(byte{0x00});
+    EXPECT_THROW(parse(span<const byte>{pkt.data(), pkt.size()}),
                  ParseError);
 }
 
 TEST(DnsParser, PointerOutOfBoundsThrows) {
     auto pkt = make_header(1);
-    pkt.push_back(std::byte{0xc0});   // pointer
-    pkt.push_back(std::byte{0xff});   // target offset 255 (> packet size)
+    pkt.push_back(byte{0xc0});   // pointer
+    pkt.push_back(byte{0xff});   // target offset 255 (> packet size)
     // Pad out to 40 bytes so the packet is larger than the header but
     // smaller than the pointer target.
-    while (pkt.size() < 40) pkt.push_back(std::byte{0x00});
-    EXPECT_THROW(parse(std::span<const std::byte>{pkt.data(), pkt.size()}),
+    while (pkt.size() < 40) pkt.push_back(byte{0x00});
+    EXPECT_THROW(parse(span<const byte>{pkt.data(), pkt.size()}),
                  ParseError);
 }
 
@@ -172,22 +173,22 @@ TEST(DnsParser, PointerLoopThrows) {
     // offset 12: pointer to offset 14
     // offset 14: pointer to offset 12
     auto pkt = make_header(1);
-    pkt.push_back(std::byte{0xc0}); pkt.push_back(std::byte{0x0e}); // -> 14
-    pkt.push_back(std::byte{0xc0}); pkt.push_back(std::byte{0x0c}); // -> 12
-    EXPECT_THROW(parse(std::span<const std::byte>{pkt.data(), pkt.size()}),
+    pkt.push_back(byte{0xc0}); pkt.push_back(byte{0x0e}); // -> 14
+    pkt.push_back(byte{0xc0}); pkt.push_back(byte{0x0c}); // -> 12
+    EXPECT_THROW(parse(span<const byte>{pkt.data(), pkt.size()}),
                  ParseError);
 }
 
 TEST(DnsParser, TruncatedRdataThrows) {
     // Header: QDCOUNT=0, ANCOUNT=1.
     auto pkt = make_header(0, 1);
-    pkt.push_back(std::byte{0x00});   // RR NAME = root
-    pkt.push_back(std::byte{0x00}); pkt.push_back(std::byte{0x01}); // TYPE=A
-    pkt.push_back(std::byte{0x00}); pkt.push_back(std::byte{0x01}); // CLASS=IN
-    pkt.push_back(std::byte{0x00}); pkt.push_back(std::byte{0x00});
-    pkt.push_back(std::byte{0x00}); pkt.push_back(std::byte{0x3c}); // TTL=60
-    pkt.push_back(std::byte{0x00}); pkt.push_back(std::byte{0x04}); // RDLEN=4
-    pkt.push_back(std::byte{0x01}); pkt.push_back(std::byte{0x02}); // only 2 bytes
-    EXPECT_THROW(parse(std::span<const std::byte>{pkt.data(), pkt.size()}),
+    pkt.push_back(byte{0x00});   // RR NAME = root
+    pkt.push_back(byte{0x00}); pkt.push_back(byte{0x01}); // TYPE=A
+    pkt.push_back(byte{0x00}); pkt.push_back(byte{0x01}); // CLASS=IN
+    pkt.push_back(byte{0x00}); pkt.push_back(byte{0x00});
+    pkt.push_back(byte{0x00}); pkt.push_back(byte{0x3c}); // TTL=60
+    pkt.push_back(byte{0x00}); pkt.push_back(byte{0x04}); // RDLEN=4
+    pkt.push_back(byte{0x01}); pkt.push_back(byte{0x02}); // only 2 bytes
+    EXPECT_THROW(parse(span<const byte>{pkt.data(), pkt.size()}),
                  ParseError);
 }

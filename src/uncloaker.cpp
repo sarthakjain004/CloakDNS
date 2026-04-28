@@ -4,6 +4,7 @@
 #include "cloakdns/dns_parser.hpp"
 #include "cloakdns/dns_writer.hpp"
 #include "cloakdns/etld.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <unordered_set>
 #include <utility>
@@ -12,7 +13,7 @@ namespace cloak {
 namespace {
 
 struct WalkOutput {
-    std::vector<std::string> new_hops;
+    vector<string> new_hops;
     bool terminated{false};
 };
 
@@ -23,10 +24,10 @@ struct WalkOutput {
 // by answer count so a cyclic response produces a bounded output that
 // the caller's cross-response `seen` set then detects as a loop.
 WalkOutput walk_answers(const DnsMessage& msg,
-                        std::span<const std::byte> packet,
-                        std::string_view start) {
+                        span<const byte> packet,
+                        string_view start) {
     WalkOutput w;
-    std::string current{start};
+    string current{start};
     const size_t cap = msg.answers.size() + 1;
 
     for (size_t iter = 0; iter < cap; ++iter) {
@@ -42,7 +43,7 @@ WalkOutput walk_answers(const DnsMessage& msg,
 
             const auto rdata_offset = static_cast<size_t>(
                 rr.rdata.data() - packet.data());
-            std::string target = decode_name_at(packet, rdata_offset);
+            string target = decode_name_at(packet, rdata_offset);
 
             w.new_hops.push_back(target);
             current = std::move(target);
@@ -66,20 +67,20 @@ CnameUncloaker::CnameUncloaker(UpstreamForwarder& forwarder,
     : forwarder_(forwarder), blocklist_(blocklist), cfg_(cfg) {}
 
 asio::awaitable<UncloakResult>
-CnameUncloaker::uncloak(std::string_view original_qname,
-                        std::span<const std::byte> first_response) {
+CnameUncloaker::uncloak(string_view original_qname,
+                        span<const byte> first_response) {
     UncloakResult result;
     result.chain.emplace_back(original_qname);
-    std::unordered_set<std::string> seen{result.chain.front()};
+    std::unordered_set<string> seen{result.chain.front()};
 
     // Original eTLD+1 — used to flag cross-registrable-domain hops.
     // Empty when original_qname is empty / a degenerate single label.
-    const std::string original_etldp1 = etld_plus_one(original_qname);
+    const string original_etldp1 = etld_plus_one(original_qname);
 
     // First iteration walks `first_response` without copying. Re-query
     // responses are owned by `owned_packet` and aliased by `current`.
-    std::span<const std::byte> current = first_response;
-    std::vector<std::byte> owned_packet;
+    span<const byte> current = first_response;
+    vector<byte> owned_packet;
 
     while (true) {
         DnsMessage msg;
@@ -119,7 +120,7 @@ CnameUncloaker::uncloak(std::string_view original_qname,
             // overwrite. Skipped silently when original eTLD+1 was empty
             // (degenerate input — nothing meaningful to compare against).
             if (!result.crossed_etldp1 && !original_etldp1.empty()) {
-                std::string hop_etldp1 = etld_plus_one(hop);
+                string hop_etldp1 = etld_plus_one(hop);
                 if (!hop_etldp1.empty() && hop_etldp1 != original_etldp1) {
                     result.crossed_etldp1 = true;
                     result.crossed_to = std::move(hop_etldp1);
@@ -150,24 +151,24 @@ CnameUncloaker::uncloak(std::string_view original_qname,
             co_return result;
         }
 
-        std::vector<std::byte> req;
+        vector<byte> req;
         try {
             // Placeholder id; the forwarder rewrites it to a fresh
             // random value on the wire per M4's Kaminsky defense.
             req = build_a_query(result.chain.back(), /*id=*/0);
-        } catch (const std::exception&) {
+        } catch (const exception&) {
             result.status = UncloakStatus::Aborted;
             result.abort_reason = "cannot encode re-query name";
             co_return result;
         }
         try {
             owned_packet = co_await forwarder_.forward(req);
-        } catch (const std::exception&) {
+        } catch (const exception&) {
             result.status = UncloakStatus::Aborted;
             result.abort_reason = "re-query failed";
             co_return result;
         }
-        current = std::span<const std::byte>{owned_packet};
+        current = span<const byte>{owned_packet};
     }
 }
 

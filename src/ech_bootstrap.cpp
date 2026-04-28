@@ -15,6 +15,7 @@
 #include "cloakdns/ech_bootstrap.hpp"
 #include "cloakdns/dns_message.hpp"
 #include "cloakdns/dns_parser.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <asio/buffer.hpp>
 #include <asio/steady_timer.hpp>
@@ -33,57 +34,57 @@ namespace cloak {
 
 namespace {
 
-constexpr std::uint16_t kQTypeHttps = 65;
-constexpr std::size_t   kMaxResponse = 4096;
+constexpr uint16_t kQTypeHttps = 65;
+constexpr size_t   kMaxResponse = 4096;
 
 // SvcParamKey 5 (ech) per RFC 9460 §14.3.
-constexpr std::uint16_t kSvcParamKeyEch = 5;
+constexpr uint16_t kSvcParamKeyEch = 5;
 
-void write_u16_be(std::span<std::byte> b, std::size_t off, std::uint16_t v) {
-    b[off]     = std::byte{static_cast<std::uint8_t>((v >> 8) & 0xff)};
-    b[off + 1] = std::byte{static_cast<std::uint8_t>(v & 0xff)};
+void write_u16_be(span<byte> b, size_t off, uint16_t v) {
+    b[off]     = byte{static_cast<uint8_t>((v >> 8) & 0xff)};
+    b[off + 1] = byte{static_cast<uint8_t>(v & 0xff)};
 }
 
-std::uint16_t read_u16_be(std::span<const std::byte> b, std::size_t off) {
-    return static_cast<std::uint16_t>(
-        (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(b[off])) << 8) |
-         static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(b[off + 1])));
+uint16_t read_u16_be(span<const byte> b, size_t off) {
+    return static_cast<uint16_t>(
+        (static_cast<uint16_t>(to_integer<uint8_t>(b[off])) << 8) |
+         static_cast<uint16_t>(to_integer<uint8_t>(b[off + 1])));
 }
 
 // Build a wire-format DNS query for `<qname>. IN TYPE65`. RD bit set.
-std::vector<std::byte> build_https_query(std::string_view qname, std::uint16_t id) {
+vector<byte> build_https_query(string_view qname, uint16_t id) {
     // Header (12 bytes) + qname-encoded + 2 (qtype) + 2 (qclass).
-    std::vector<std::byte> out;
+    vector<byte> out;
     out.reserve(12 + qname.size() + 6);
     out.resize(12);
-    write_u16_be(std::span<std::byte>{out}, 0, id);
+    write_u16_be(span<byte>{out}, 0, id);
     // RD = 1, opcode 0, QR 0; flags second byte zero.
-    out[2] = std::byte{0x01};
-    out[3] = std::byte{0x00};
-    write_u16_be(std::span<std::byte>{out}, 4, 1);  // qdcount
+    out[2] = byte{0x01};
+    out[3] = byte{0x00};
+    write_u16_be(span<byte>{out}, 4, 1);  // qdcount
     // ancount/nscount/arcount left zero.
 
     // QNAME: each label prefixed by its length, terminated by 0x00.
-    std::size_t label_start = 0;
-    for (std::size_t i = 0; i <= qname.size(); ++i) {
+    size_t label_start = 0;
+    for (size_t i = 0; i <= qname.size(); ++i) {
         if (i == qname.size() || qname[i] == '.') {
-            const std::size_t len = i - label_start;
+            const size_t len = i - label_start;
             if (len == 0) break;     // trailing dot or empty name — emit root early
-            if (len > 63) throw std::runtime_error{"ech_bootstrap: label > 63 bytes"};
-            out.push_back(std::byte{static_cast<std::uint8_t>(len)});
-            for (std::size_t j = label_start; j < i; ++j) {
-                out.push_back(std::byte{static_cast<std::uint8_t>(qname[j])});
+            if (len > 63) throw runtime_error{"ech_bootstrap: label > 63 bytes"};
+            out.push_back(byte{static_cast<uint8_t>(len)});
+            for (size_t j = label_start; j < i; ++j) {
+                out.push_back(byte{static_cast<uint8_t>(qname[j])});
             }
             label_start = i + 1;
         }
     }
-    out.push_back(std::byte{0});      // root label terminator
+    out.push_back(byte{0});      // root label terminator
 
     // QTYPE (HTTPS = 65), QCLASS (IN = 1).
-    out.push_back(std::byte{0});
-    out.push_back(std::byte{static_cast<std::uint8_t>(kQTypeHttps)});
-    out.push_back(std::byte{0});
-    out.push_back(std::byte{1});
+    out.push_back(byte{0});
+    out.push_back(byte{static_cast<uint8_t>(kQTypeHttps)});
+    out.push_back(byte{0});
+    out.push_back(byte{1});
     return out;
 }
 
@@ -94,32 +95,32 @@ std::vector<std::byte> build_https_query(std::string_view qname, std::uint16_t i
 // is almost always "." (root, single 0x00 byte) meaning "use the
 // queried name." If we see a pointer, bail out — caller treats it as
 // "unable to parse, ignore record."
-std::optional<std::size_t> skip_uncompressed_name(
-        std::span<const std::byte> rdata, std::size_t off) {
+optional<size_t> skip_uncompressed_name(
+        span<const byte> rdata, size_t off) {
     while (off < rdata.size()) {
-        const auto b = std::to_integer<std::uint8_t>(rdata[off]);
+        const auto b = to_integer<uint8_t>(rdata[off]);
         if (b == 0) return off + 1;          // root label, done
-        if ((b & 0xc0) != 0) return std::nullopt;   // pointer or reserved bits
-        const std::size_t label_len = b;
-        if (off + 1 + label_len > rdata.size()) return std::nullopt;
+        if ((b & 0xc0) != 0) return nullopt;   // pointer or reserved bits
+        const size_t label_len = b;
+        if (off + 1 + label_len > rdata.size()) return nullopt;
         off += 1 + label_len;
     }
-    return std::nullopt;
+    return nullopt;
 }
 
 } // namespace
 
-std::optional<std::vector<std::byte>>
-svcb_extract_ech(std::span<const std::byte> rdata) noexcept {
+optional<vector<byte>>
+svcb_extract_ech(span<const byte> rdata) noexcept {
     try {
         // RFC 9460 §2.2: SVCB rdata = SvcPriority (2) + TargetName + SvcParams*
-        if (rdata.size() < 3) return std::nullopt;
+        if (rdata.size() < 3) return nullopt;
         const auto priority = read_u16_be(rdata, 0);
-        if (priority == 0) return std::nullopt;       // AliasMode — out of scope
+        if (priority == 0) return nullopt;       // AliasMode — out of scope
 
-        std::size_t cursor = 2;
+        size_t cursor = 2;
         const auto after_name = skip_uncompressed_name(rdata, cursor);
-        if (!after_name) return std::nullopt;
+        if (!after_name) return nullopt;
         cursor = *after_name;
 
         // Walk the SvcParam list. Keys must appear in strictly ascending
@@ -128,50 +129,50 @@ svcb_extract_ech(std::span<const std::byte> rdata) noexcept {
             const auto key  = read_u16_be(rdata, cursor);
             const auto vlen = read_u16_be(rdata, cursor + 2);
             cursor += 4;
-            if (cursor + vlen > rdata.size()) return std::nullopt;
+            if (cursor + vlen > rdata.size()) return nullopt;
             if (key == kSvcParamKeyEch) {
-                std::vector<std::byte> out(vlen);
+                vector<byte> out(vlen);
                 std::memcpy(out.data(), rdata.data() + cursor, vlen);
                 return out;
             }
             cursor += vlen;
         }
-        return std::nullopt;
+        return nullopt;
     } catch (...) {
-        return std::nullopt;
+        return nullopt;
     }
 }
 
-asio::awaitable<std::optional<std::vector<std::byte>>>
+asio::awaitable<optional<vector<byte>>>
 fetch_https_rr_rdata(asio::io_context& ctx,
                      const asio::ip::udp::endpoint& bootstrap,
-                     std::string_view qname,
-                     std::chrono::milliseconds timeout) {
+                     string_view qname,
+                     chrono::milliseconds timeout) {
     std::random_device rd;
-    std::uniform_int_distribution<std::uint32_t> dist{0, 0xffff};
+    std::uniform_int_distribution<uint32_t> dist{0, 0xffff};
     std::mt19937 rng{rd()};
-    const auto our_id = static_cast<std::uint16_t>(dist(rng));
+    const auto our_id = static_cast<uint16_t>(dist(rng));
 
-    std::vector<std::byte> query;
+    vector<byte> query;
     try {
         query = build_https_query(qname, our_id);
-    } catch (const std::exception&) {
-        co_return std::nullopt;
+    } catch (const exception&) {
+        co_return nullopt;
     }
 
-    auto sock = std::make_shared<asio::ip::udp::socket>(ctx);
+    auto sock = make_shared<asio::ip::udp::socket>(ctx);
     try {
         sock->open(asio::ip::udp::v4());
         sock->bind(asio::ip::udp::endpoint{asio::ip::udp::v4(), 0});
-    } catch (const std::system_error&) {
-        co_return std::nullopt;
+    } catch (const system_error&) {
+        co_return nullopt;
     }
 
     asio::steady_timer timer{ctx};
     timer.expires_after(timeout);
-    timer.async_wait([sock](const std::error_code& ec) {
+    timer.async_wait([sock](const error_code& ec) {
         if (!ec) {
-            std::error_code ignore;
+            error_code ignore;
             sock->cancel(ignore);
         }
     });
@@ -180,51 +181,51 @@ fetch_https_rr_rdata(asio::io_context& ctx,
         co_await sock->async_send_to(
             asio::buffer(query.data(), query.size()), bootstrap,
             asio::use_awaitable);
-    } catch (const std::system_error&) {
-        co_return std::nullopt;
+    } catch (const system_error&) {
+        co_return nullopt;
     }
 
-    std::vector<std::byte> buf(kMaxResponse);
+    vector<byte> buf(kMaxResponse);
     asio::ip::udp::endpoint from;
-    std::size_t n = 0;
+    size_t n = 0;
     try {
         n = co_await sock->async_receive_from(
             asio::buffer(buf.data(), buf.size()), from,
             asio::use_awaitable);
-    } catch (const std::system_error&) {
-        co_return std::nullopt;
+    } catch (const system_error&) {
+        co_return nullopt;
     }
     timer.cancel();
-    if (from != bootstrap) co_return std::nullopt;
-    if (n < 12)            co_return std::nullopt;
+    if (from != bootstrap) co_return nullopt;
+    if (n < 12)            co_return nullopt;
 
     DnsMessage msg;
     try {
-        msg = parse(std::span<const std::byte>{buf.data(), n});
+        msg = parse(span<const byte>{buf.data(), n});
     } catch (const ParseError&) {
-        co_return std::nullopt;
+        co_return nullopt;
     }
-    if (msg.header.id != our_id) co_return std::nullopt;
-    if (msg.header.rcode != 0)   co_return std::nullopt;
+    if (msg.header.id != our_id) co_return nullopt;
+    if (msg.header.rcode != 0)   co_return nullopt;
 
     // Find the first HTTPS-typed answer. The owner name should match
     // qname (lowercased) but we don't double-check — we trust the
     // resolver and the ID match.
     for (const auto& rr : msg.answers) {
         if (rr.type == kQTypeHttps) {
-            std::vector<std::byte> rdata(rr.rdata.size());
+            vector<byte> rdata(rr.rdata.size());
             std::memcpy(rdata.data(), rr.rdata.data(), rr.rdata.size());
             co_return rdata;
         }
     }
-    co_return std::nullopt;
+    co_return nullopt;
 }
 
-asio::awaitable<std::optional<std::vector<std::byte>>>
+asio::awaitable<optional<vector<byte>>>
 bootstrap_ech_config(asio::io_context& ctx,
-                     std::span<const asio::ip::udp::endpoint> bootstrap_servers,
-                     std::string_view hostname,
-                     std::chrono::milliseconds timeout) {
+                     span<const asio::ip::udp::endpoint> bootstrap_servers,
+                     string_view hostname,
+                     chrono::milliseconds timeout) {
     for (const auto& ep : bootstrap_servers) {
         auto rdata = co_await fetch_https_rr_rdata(ctx, ep, hostname, timeout);
         if (!rdata) {
@@ -246,7 +247,7 @@ bootstrap_ech_config(asio::io_context& ctx,
                   << std::endl;
         co_return ech;
     }
-    co_return std::nullopt;
+    co_return nullopt;
 }
 
 } // namespace cloak

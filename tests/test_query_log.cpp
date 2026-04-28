@@ -1,4 +1,5 @@
 #include "cloakdns/query_log.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <gtest/gtest.h>
 
@@ -14,14 +15,14 @@ using namespace std::chrono_literals;
 
 namespace {
 
-std::filesystem::path temp_log_path() {
-    return std::filesystem::temp_directory_path() /
+fs::path temp_log_path() {
+    return fs::temp_directory_path() /
            ("cloak_log_" + std::to_string(std::rand()) + ".jsonl");
 }
 
 QueryLog sample_record(LogAction action = LogAction::Allow) {
     QueryLog r;
-    r.ts          = std::chrono::system_clock::now();
+    r.ts          = chrono::system_clock::now();
     r.qname       = "example.com";
     r.qtype       = 1;
     r.action      = action;
@@ -32,10 +33,10 @@ QueryLog sample_record(LogAction action = LogAction::Allow) {
     return r;
 }
 
-std::vector<std::string> read_lines(const std::filesystem::path& p) {
+vector<string> read_lines(const fs::path& p) {
     std::ifstream in{p};
-    std::vector<std::string> out;
-    std::string line;
+    vector<string> out;
+    string line;
     while (std::getline(in, line)) out.push_back(line);
     return out;
 }
@@ -46,15 +47,15 @@ std::vector<std::string> read_lines(const std::filesystem::path& p) {
 
 TEST(JsonLine, BasicAllowShape) {
     auto line = to_json_line(sample_record());
-    EXPECT_NE(line.find("\"action\":\"allow\""), std::string::npos);
-    EXPECT_NE(line.find("\"qname\":\"example.com\""), std::string::npos);
-    EXPECT_NE(line.find("\"qtype\":\"A\""), std::string::npos);
-    EXPECT_NE(line.find("\"rule\":null"), std::string::npos);
-    EXPECT_NE(line.find("\"cname_chain\":[]"), std::string::npos);
-    EXPECT_NE(line.find("\"upstream\":\"1.1.1.1:53\""), std::string::npos);
-    EXPECT_NE(line.find("\"latency_ms\":4.215"), std::string::npos);
+    EXPECT_NE(line.find("\"action\":\"allow\""), string::npos);
+    EXPECT_NE(line.find("\"qname\":\"example.com\""), string::npos);
+    EXPECT_NE(line.find("\"qtype\":\"A\""), string::npos);
+    EXPECT_NE(line.find("\"rule\":null"), string::npos);
+    EXPECT_NE(line.find("\"cname_chain\":[]"), string::npos);
+    EXPECT_NE(line.find("\"upstream\":\"1.1.1.1:53\""), string::npos);
+    EXPECT_NE(line.find("\"latency_ms\":4.215"), string::npos);
     EXPECT_NE(line.find("\"client\":\"192.168.1.12:54321\""),
-              std::string::npos);
+              string::npos);
     EXPECT_EQ(line.front(), '{');
     EXPECT_EQ(line.back(),  '}');
 }
@@ -63,38 +64,38 @@ TEST(JsonLine, RuleAndChainPopulated) {
     auto r = sample_record(LogAction::Uncloak);
     r.rule = "criteo.com";
     r.cname_chain = {"metrics.example.com", "sdata.criteo.com"};
-    r.upstream = std::nullopt;
+    r.upstream = nullopt;
     auto line = to_json_line(r);
-    EXPECT_NE(line.find("\"action\":\"uncloak\""), std::string::npos);
-    EXPECT_NE(line.find("\"rule\":\"criteo.com\""), std::string::npos);
+    EXPECT_NE(line.find("\"action\":\"uncloak\""), string::npos);
+    EXPECT_NE(line.find("\"rule\":\"criteo.com\""), string::npos);
     EXPECT_NE(line.find(
         "\"cname_chain\":[\"metrics.example.com\",\"sdata.criteo.com\"]"),
-        std::string::npos);
-    EXPECT_NE(line.find("\"upstream\":null"), std::string::npos);
+        string::npos);
+    EXPECT_NE(line.find("\"upstream\":null"), string::npos);
 }
 
 TEST(JsonLine, EscapesControlChars) {
     auto r = sample_record();
     char soh = 0x01;
-    r.qname = std::string{"evil"} + soh + "\nname";
+    r.qname = string{"evil"} + soh + "\nname";
     auto line = to_json_line(r);
     // 0x01 encodes as ; 0x0a encodes as \n.
     EXPECT_NE(line.find("\"qname\":\"evil\\u0001\\nname\""),
-              std::string::npos);
+              string::npos);
 }
 
 TEST(JsonLine, EscapesQuotesAndBackslash) {
     auto r = sample_record();
     r.rule = "a\"b\\c";
     auto line = to_json_line(r);
-    EXPECT_NE(line.find("\"rule\":\"a\\\"b\\\\c\""), std::string::npos);
+    EXPECT_NE(line.find("\"rule\":\"a\\\"b\\\\c\""), string::npos);
 }
 
 TEST(JsonLine, UnknownQtypeFallsBackToInteger) {
     auto r = sample_record();
     r.qtype = 9999;
     auto line = to_json_line(r);
-    EXPECT_NE(line.find("\"qtype\":9999"), std::string::npos);
+    EXPECT_NE(line.find("\"qtype\":9999"), string::npos);
 }
 
 TEST(JsonLine, IncludesSchemaVersion) {
@@ -111,7 +112,7 @@ TEST(JsonLine, EmitsTlsEchStatusWhenPresent) {
     auto rec = sample_record();
     rec.tls_ech_status = "success";
     auto line = to_json_line(rec);
-    EXPECT_NE(line.find("\"tls_ech_status\":\"success\""), std::string::npos)
+    EXPECT_NE(line.find("\"tls_ech_status\":\"success\""), string::npos)
         << "expected tls_ech_status field in: " << line;
 }
 
@@ -119,7 +120,7 @@ TEST(JsonLine, OmitsTlsEchStatusWhenNullopt) {
     auto rec = sample_record();
     rec.tls_ech_status.reset();
     auto line = to_json_line(rec);
-    EXPECT_EQ(line.find("tls_ech_status"), std::string::npos)
+    EXPECT_EQ(line.find("tls_ech_status"), string::npos)
         << "tls_ech_status leaked into log line: " << line;
 }
 
@@ -141,16 +142,16 @@ TEST(QueryLogger, RotatesPastMaxSize) {
     }
     // At least one rotated sibling exists.
     bool found = false;
-    for (auto& e : std::filesystem::directory_iterator{path.parent_path()}) {
+    for (auto& e : fs::directory_iterator{path.parent_path()}) {
         const auto fname = e.path().filename().string();
         if (fname.starts_with(path.filename().string()) &&
             fname.size() > path.filename().string().size() + 1) {
             found = true;
-            std::filesystem::remove(e.path());
+            fs::remove(e.path());
         }
     }
     EXPECT_TRUE(found) << "expected at least one rotated log sibling";
-    std::filesystem::remove(path);
+    fs::remove(path);
 }
 
 TEST(QueryLogger, RedactClientFlagHashesAddress) {
@@ -166,10 +167,10 @@ TEST(QueryLogger, RedactClientFlagHashesAddress) {
     }
     auto lines = read_lines(path);
     ASSERT_EQ(lines.size(), 1u);
-    EXPECT_NE(lines[0].find("\"client\":\"hash:"), std::string::npos)
+    EXPECT_NE(lines[0].find("\"client\":\"hash:"), string::npos)
         << "raw client IP must not appear when redact_client=true: " << lines[0];
-    EXPECT_EQ(lines[0].find("192.168.1.12"), std::string::npos);
-    std::filesystem::remove(path);
+    EXPECT_EQ(lines[0].find("192.168.1.12"), string::npos);
+    fs::remove(path);
 }
 
 TEST(RedactClient, StableHashPrefix) {
@@ -178,15 +179,15 @@ TEST(RedactClient, StableHashPrefix) {
     EXPECT_EQ(a, b);                                     // deterministic
     EXPECT_TRUE(a.starts_with("hash:"));                 // tagged
     EXPECT_NE(a, redact_client_id("10.0.0.1:1234"));     // different input
-    EXPECT_EQ(a.size(), std::string{"hash:"}.size() + 8u); // 8-hex truncation
+    EXPECT_EQ(a.size(), string{"hash:"}.size() + 8u); // 8-hex truncation
 }
 
 TEST(JsonLine, TimestampIsIso8601Utc) {
     auto r = sample_record();
     auto line = to_json_line(r);
     const auto pos = line.find("\"ts\":\"");
-    ASSERT_NE(pos, std::string::npos);
-    const std::string ts = line.substr(pos + 6, 24);
+    ASSERT_NE(pos, string::npos);
+    const string ts = line.substr(pos + 6, 24);
     ASSERT_EQ(ts.size(), 24u);
     EXPECT_EQ(ts[4],  '-');
     EXPECT_EQ(ts[7],  '-');
@@ -209,9 +210,9 @@ TEST(QueryLogger, SyncWritesOneLinePerRecord) {
     }
     auto lines = read_lines(path);
     ASSERT_EQ(lines.size(), 2u);
-    EXPECT_NE(lines[0].find("\"action\":\"block\""),  std::string::npos);
-    EXPECT_NE(lines[1].find("\"action\":\"cached\""), std::string::npos);
-    std::filesystem::remove(path);
+    EXPECT_NE(lines[0].find("\"action\":\"block\""),  string::npos);
+    EXPECT_NE(lines[1].find("\"action\":\"cached\""), string::npos);
+    fs::remove(path);
 }
 
 // ---------- QueryLogger async ----------
@@ -228,7 +229,7 @@ TEST(QueryLogger, AsyncFlushWritesAllRecords) {
     }
     auto lines = read_lines(path);
     EXPECT_EQ(lines.size(), 10u);
-    std::filesystem::remove(path);
+    fs::remove(path);
 }
 
 TEST(QueryLogger, AllRecordsAccountedForUnderPressure) {
@@ -245,7 +246,7 @@ TEST(QueryLogger, AllRecordsAccountedForUnderPressure) {
     }
     const auto written = read_lines(path).size();
     EXPECT_EQ(written + drops, 500u);
-    std::filesystem::remove(path);
+    fs::remove(path);
 }
 
 TEST(QueryLogger, EmptyPathIsDisabled) {

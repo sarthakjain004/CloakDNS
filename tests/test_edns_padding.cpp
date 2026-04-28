@@ -1,6 +1,7 @@
 #include "cloakdns/dns_parser.hpp"
 #include "cloakdns/dns_writer.hpp"
 #include "cloakdns/edns_padding.hpp"
+#include "cloakdns/aliases.hpp"
 #include "fixtures.hpp"
 
 #include <gtest/gtest.h>
@@ -18,16 +19,16 @@ using namespace cloak;
 namespace {
 
 template <size_t N>
-std::span<const std::byte> as_span(const std::array<std::byte, N>& a) {
-    return std::span<const std::byte>{a.data(), a.size()};
+span<const byte> as_span(const array<byte, N>& a) {
+    return span<const byte>{a.data(), a.size()};
 }
 
-std::span<const std::byte> as_span(const std::vector<std::byte>& v) {
-    return std::span<const std::byte>{v.data(), v.size()};
+span<const byte> as_span(const vector<byte>& v) {
+    return span<const byte>{v.data(), v.size()};
 }
 
-std::string chunked_label_name(size_t total_chars) {
-    std::string out;
+string chunked_label_name(size_t total_chars) {
+    string out;
     for (size_t i = 0; i < total_chars; i += 63) {
         if (!out.empty()) out += '.';
         const auto chunk = std::min<size_t>(63, total_chars - i);
@@ -95,7 +96,7 @@ TEST(EdnsPadding, LargeQueryRoundedToNextMultiple) {
 }
 
 TEST(EdnsPadding, MalformedInputPassesThrough) {
-    std::vector<std::byte> junk(4, std::byte{0xab});
+    vector<byte> junk(4, byte{0xab});
     auto padded = pad_query(as_span(junk), 128);
     EXPECT_EQ(padded.size(), junk.size());
 }
@@ -113,36 +114,36 @@ TEST(EdnsPadding, NonLastOptPassesThrough) {
     //
     // We hand-assemble bytes: header + 1 question + 2 additional RRs
     // where the first is OPT and the second is a non-OPT RR.
-    std::vector<std::byte> pkt;
+    vector<byte> pkt;
     auto w16 = [&](uint16_t v) {
-        pkt.push_back(std::byte{static_cast<uint8_t>(v >> 8)});
-        pkt.push_back(std::byte{static_cast<uint8_t>(v & 0xff)});
+        pkt.push_back(byte{static_cast<uint8_t>(v >> 8)});
+        pkt.push_back(byte{static_cast<uint8_t>(v & 0xff)});
     };
-    auto emit_name = [&](std::string_view name) {
+    auto emit_name = [&](string_view name) {
         size_t start = 0;
         for (size_t i = 0; i <= name.size(); ++i) {
             if (i == name.size() || name[i] == '.') {
                 const auto len = static_cast<uint8_t>(i - start);
-                pkt.push_back(std::byte{len});
+                pkt.push_back(byte{len});
                 for (size_t j = start; j < i; ++j)
-                    pkt.push_back(std::byte{static_cast<uint8_t>(name[j])});
+                    pkt.push_back(byte{static_cast<uint8_t>(name[j])});
                 start = i + 1;
             }
         }
-        pkt.push_back(std::byte{0});
+        pkt.push_back(byte{0});
     };
     // header: id=1, flags=0x0100, qd=1, an=0, ns=0, ar=2
     w16(1); w16(0x0100); w16(1); w16(0); w16(0); w16(2);
     emit_name("foo.example");
     w16(1); w16(1);                        // QTYPE=A QCLASS=IN
     // additional[0]: OPT (type 41) with RDLEN 0
-    pkt.push_back(std::byte{0});           // root name
+    pkt.push_back(byte{0});           // root name
     w16(dns_type::OPT); w16(4096); w16(0); w16(0); w16(0);
     // additional[1]: A record for foo.example → 1.2.3.4 (makes OPT non-last)
     emit_name("foo.example");
     w16(1); w16(1); w16(0); w16(60); w16(4);
-    pkt.push_back(std::byte{1}); pkt.push_back(std::byte{2});
-    pkt.push_back(std::byte{3}); pkt.push_back(std::byte{4});
+    pkt.push_back(byte{1}); pkt.push_back(byte{2});
+    pkt.push_back(byte{3}); pkt.push_back(byte{4});
 
     auto padded = pad_query(as_span(pkt), 128);
     EXPECT_EQ(padded.size(), pkt.size());  // unchanged because OPT not last

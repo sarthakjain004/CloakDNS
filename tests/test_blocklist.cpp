@@ -1,4 +1,5 @@
 #include "cloakdns/blocklist.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <gtest/gtest.h>
 
@@ -9,8 +10,8 @@ using namespace cloak;
 
 namespace {
 
-std::filesystem::path make_temp_hosts(const std::string& body) {
-    auto path = std::filesystem::temp_directory_path() /
+fs::path make_temp_hosts(const string& body) {
+    auto path = fs::temp_directory_path() /
                 ("cloak_bl_" + std::to_string(std::rand()) + ".txt");
     std::ofstream out{path};
     out << body;
@@ -210,7 +211,7 @@ TEST(BlocklistHosts, SkipsMalformed) {
 TEST(BlocklistHosts, MissingFileThrows) {
     Blocklist bl;
     EXPECT_THROW(bl.load_hosts_file("/definitely/not/a/path.txt"),
-                 std::runtime_error);
+                 runtime_error);
 }
 
 // ---- allowlist (passthrough) ----

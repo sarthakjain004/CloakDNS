@@ -1,4 +1,5 @@
 #include "cloakdns/config.hpp"
+#include "cloakdns/aliases.hpp"
 
 #include <gtest/gtest.h>
 
@@ -162,8 +163,8 @@ TEST(Config, MalformedTomlRejectedWithLineInfo) {
         parse_config_toml("this is = = not valid toml");
         FAIL() << "expected ConfigError";
     } catch (const ConfigError& e) {
-        EXPECT_NE(std::string{e.what()}.find("TOML parse error"),
-                  std::string::npos);
+        EXPECT_NE(string{e.what()}.find("TOML parse error"),
+                  string::npos);
     }
 }
 
@@ -194,7 +195,7 @@ anything = true
 // ---------- load_config file I/O ----------
 
 TEST(LoadConfig, ReadsFileAndParses) {
-    auto path = std::filesystem::temp_directory_path() /
+    auto path = fs::temp_directory_path() /
                 ("cloakdns_cfg_" + std::to_string(std::rand()) + ".toml");
     {
         std::ofstream out{path};
@@ -202,7 +203,7 @@ TEST(LoadConfig, ReadsFileAndParses) {
     }
     auto c = load_config(path);
     EXPECT_EQ(c.server.listen_port, 1234);
-    std::filesystem::remove(path);
+    fs::remove(path);
 }
 
 TEST(LoadConfig, NonexistentPathThrowsWithHint) {
@@ -210,7 +211,7 @@ TEST(LoadConfig, NonexistentPathThrowsWithHint) {
         load_config("/definitely/not/a/real/path.toml");
         FAIL() << "expected ConfigError";
     } catch (const ConfigError& e) {
-        EXPECT_NE(std::string{e.what()}.find("cannot open config"),
-                  std::string::npos);
+        EXPECT_NE(string{e.what()}.find("cannot open config"),
+                  string::npos);
     }
 }
