@@ -15,6 +15,7 @@
 #include <cctype>
 #include <charconv>
 #include <cstring>
+#include <iostream>
 #include <istream>
 #include <memory>
 #include <sstream>
@@ -112,30 +113,49 @@ post_https_oneshot(asio::io_context& ctx,
                    std::chrono::milliseconds timeout) {
     if (host_header.empty()) co_return std::nullopt;
 
-    auto stream = std::make_shared<asio::ssl::stream<asio::ip::tcp::socket>>(
-        ctx, tls_ctx.asio_context());
+    using SslStream = asio::ssl::stream<asio::ip::tcp::socket>;
 
+    // RFC 9849 §6.1.6: on FailedRetry from the server, swap the freshly-
+    // delivered ECHConfigList into tls_ctx and re-attempt the handshake
+    // exactly once. Same shape as upstream_dot.cpp's retry loop.
+    std::shared_ptr<SslStream> stream;
     asio::steady_timer timer{ctx};
-    timer.expires_after(timeout);
-    timer.async_wait([stream](const std::error_code& ec) {
-        if (!ec) {
-            std::error_code ignore;
-            stream->lowest_layer().cancel(ignore);
+    bool handshake_ok = false;
+
+    for (int attempt = 0; attempt < 2 && !handshake_ok; ++attempt) {
+        stream = std::make_shared<SslStream>(ctx, tls_ctx.asio_context());
+
+        timer.cancel();
+        timer.expires_after(timeout);
+        timer.async_wait([stream](const std::error_code& ec) {
+            if (!ec) {
+                std::error_code ignore;
+                stream->lowest_layer().cancel(ignore);
+            }
+        });
+
+        if (!tls::configure_ssl_for_connection(stream->native_handle(),
+                                               tls_ctx.config(), host_header)) {
+            co_return std::nullopt;
         }
-    });
 
-    if (!tls::configure_ssl_for_connection(stream->native_handle(),
-                                           tls_ctx.config(), host_header)) {
-        co_return std::nullopt;
+        try {
+            co_await stream->lowest_layer().async_connect(server, asio::use_awaitable);
+            co_await stream->async_handshake(
+                asio::ssl::stream_base::client, asio::use_awaitable);
+            handshake_ok = true;
+        } catch (const std::system_error&) {
+            if (attempt == 0 &&
+                tls::maybe_apply_ech_retry(tls_ctx, stream->native_handle())) {
+                std::cerr << "ech: retry_configs received from "
+                          << host_header << " — retrying DoH handshake"
+                          << std::endl;
+                continue;
+            }
+            co_return std::nullopt;
+        }
     }
-
-    try {
-        co_await stream->lowest_layer().async_connect(server, asio::use_awaitable);
-        co_await stream->async_handshake(
-            asio::ssl::stream_base::client, asio::use_awaitable);
-    } catch (const std::system_error&) {
-        co_return std::nullopt;
-    }
+    if (!handshake_ok) co_return std::nullopt;
 
     // Build the request head as a single string (small, ASCII).
     std::ostringstream req;

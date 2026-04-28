@@ -277,7 +277,7 @@ std::optional<std::vector<std::byte>> base64_decode(std::string_view input) {
     return out;
 }
 
-Context::Context(const ContextConfig& cfg)
+Context::Context(ContextConfig& cfg)
     : ctx_(asio::ssl::context::tls_client), cfg_(&cfg) {
     init();
     SSL_CTX* raw = ctx_.native_handle();
@@ -285,8 +285,20 @@ Context::Context(const ContextConfig& cfg)
     if (!SSL_CTX_set_default_verify_paths(raw))
         throw std::runtime_error{"tls: SSL_CTX_set_default_verify_paths failed"};
     SSL_CTX_set_verify(raw, SSL_VERIFY_PEER, verify_callback);
-    SSL_CTX_set_ex_data(raw, g_ex_data_idx.load(std::memory_order_acquire),
-                        const_cast<ContextConfig*>(cfg_));
+    SSL_CTX_set_ex_data(raw, g_ex_data_idx.load(std::memory_order_acquire), cfg_);
+}
+
+bool maybe_apply_ech_retry(Context& ctx, SSL* ssl) {
+    if (ech_status(ssl) != EchStatus::FailedRetry) return false;
+    auto retry = ech_retry_config(ssl);
+    if (!retry) return false;
+    auto& ech = ctx.ech_config();
+    auto current = ech.load();
+    EchConfig::Snapshot fresh;
+    fresh.bytes = std::make_shared<const std::vector<std::byte>>(std::move(*retry));
+    fresh.outer_servername = current.outer_servername;
+    ech.store(std::move(fresh));
+    return true;
 }
 
 } // namespace cloak::tls

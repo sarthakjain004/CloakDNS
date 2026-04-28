@@ -6,6 +6,7 @@
 #include "cloakdns/paths.hpp"
 #include "cloakdns/privilege.hpp"
 #include "cloakdns/query_log.hpp"
+#include "cloakdns/tls.hpp"
 #include "cloakdns/uncloaker.hpp"
 #include "cloakdns/upstream.hpp"
 
@@ -412,6 +413,19 @@ cloak::Blocklist build_blocklist(const cloak::Config& cfg) {
 
 int main(int argc, char** argv) {
     try {
+        // The TOML path (if any) is captured separately so the SIGHUP /
+        // SIGBREAK handler can re-parse the file from disk and pick up
+        // changes to ech_config_list_b64. argv[0] is the binary, argv[1]
+        // is the config path when present.
+        std::optional<std::filesystem::path> reload_path;
+        if (argc > 1) {
+            std::filesystem::path p{argv[1]};
+            if (p.extension().string() == ".toml") reload_path = std::move(p);
+        }
+        if (!reload_path) {
+            if (auto discovered = cloak::find_config_path(argc > 0 ? argv[0] : ""))
+                reload_path = std::move(*discovered);
+        }
         const auto cfg = load_or_default(argc, argv);
 
         blocklist_store(std::make_shared<cloak::Blocklist>(build_blocklist(cfg)));
@@ -535,8 +549,34 @@ int main(int argc, char** argv) {
             if (ec) return;   // cancelled (e.g. shutdown)
             try {
                 std::cout << "\nreload (" << kReloadName << "): rebuilding blocklist" << std::endl;
-                auto fresh = std::make_shared<cloak::Blocklist>(build_blocklist(cfg));
+                // Re-parse the config from disk if we know its path —
+                // lets the user edit ech_config_list_b64 (and blocklist
+                // sources) and pick the changes up via SIGHUP/SIGBREAK
+                // without restart. Falls back to the original cfg when
+                // running in legacy "argv = bare blocklist" mode.
+                cloak::Config fresh_cfg = cfg;
+                if (reload_path) {
+                    fresh_cfg = cloak::load_config(*reload_path);
+                }
+                auto fresh = std::make_shared<cloak::Blocklist>(build_blocklist(fresh_cfg));
                 blocklist_store(std::move(fresh));
+
+                // Hot-swap ECH bytes when the upstream is TLS-bearing.
+                // Other TLS knobs (servername, spki_pins, protocol) are
+                // not yet reloadable — changing those still needs a
+                // restart.
+                if (auto* tls_ctx = forwarder.tls_context(); tls_ctx) {
+                    cloak::tls::EchConfig::Snapshot snap;
+                    if (!fresh_cfg.upstream.ech_config_list.empty()) {
+                        snap.bytes = std::make_shared<const std::vector<std::byte>>(
+                            fresh_cfg.upstream.ech_config_list);
+                    }
+                    snap.outer_servername = fresh_cfg.upstream.ech_outer_servername;
+                    tls_ctx->ech_config().store(std::move(snap));
+                    std::cout << "reload: swapped ECH config ("
+                              << fresh_cfg.upstream.ech_config_list.size()
+                              << " bytes)" << std::endl;
+                }
             } catch (const std::exception& e) {
                 std::cerr << "reload failed (" << e.what()
                           << ") — keeping previous blocklist" << std::endl;
