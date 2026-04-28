@@ -176,13 +176,35 @@ path = ""
     return p
 
 
-def wait_for_port(port: int, timeout_s: float) -> bool:
+def wait_for_dns_responder(port: int, timeout_s: float) -> bool:
+    """Wait until 127.0.0.1:port responds to a UDP DNS query.
+
+    We can't use TCP create_connection here because cloakdns listens
+    UDP-only (see main.cpp:server.listen_*). We send a minimal A-record
+    query for example.com and treat any datagram in response as
+    proof-of-life -- we don't care about the rcode, only that the
+    daemon's read loop is up and answering.
+    """
+    # 29-byte minimal RFC 1035 query:
+    #   header (12 bytes): id 0x4242, RD=1, qdcount=1, others 0
+    #   qname (13):        \x07example\x03com\x00
+    #   qtype (2): A      qclass (2): IN
+    query = (
+        b"\x42\x42\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+        b"\x07example\x03com\x00\x00\x01\x00\x01"
+    )
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         try:
-            with socket.create_connection(("127.0.0.1", port), 0.5):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                sock.settimeout(0.5)
+                sock.sendto(query, ("127.0.0.1", port))
+                sock.recvfrom(512)
                 return True
-        except OSError:
+            finally:
+                sock.close()
+        except (OSError, socket.timeout):
             time.sleep(0.2)
     return False
 
@@ -370,8 +392,8 @@ def main() -> int:
         # CI runners are noisy; ECH bootstrap may also need a TLS round-trip
         # against the upstream before the listener binds. 30s is generous
         # enough that a real bind failure dominates over scheduling jitter.
-        if not wait_for_port(args.listen_port, timeout_s=30):
-            fail(f"cloakdns never opened {args.listen_port}",
+        if not wait_for_dns_responder(args.listen_port, timeout_s=30):
+            fail(f"cloakdns never answered UDP DNS on {args.listen_port}",
                  dump=[cloak_log, tshark_log])
 
         print("sending probe queries via dig...", file=sys.stderr)
