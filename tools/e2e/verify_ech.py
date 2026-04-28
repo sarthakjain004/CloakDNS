@@ -353,7 +353,10 @@ def main() -> int:
                   "-f", capture_filter,
                   "-w", str(pcap),
                   "-q"]
-    cloak_cmd = [args.cloakdns, "--config", str(toml_path)]
+    # cloakdns takes the config path as a positional arg, not --config.
+    # See main.cpp:load_or_default: argv[1] is treated as the config path
+    # (or a legacy bare-blocklist path) directly.
+    cloak_cmd = [args.cloakdns, str(toml_path)]
 
     print(f"starting tshark on {args.interface!r} (filter: {capture_filter!r})...", file=sys.stderr)
     with background_process(tshark_cmd, tshark_log) as tshark_proc, \
