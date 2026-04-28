@@ -78,6 +78,30 @@ def fail(msg: str) -> None:
     sys.exit(2)
 
 
+def find_tshark() -> str:
+    on_path = shutil.which("tshark")
+    if on_path:
+        return on_path
+    win_default = Path(r"C:\Program Files\Wireshark\tshark.exe")
+    if win_default.is_file():
+        return str(win_default)
+    return "tshark"
+
+
+def find_dig() -> str:
+    on_path = shutil.which("dig")
+    if on_path:
+        return on_path
+    user = os.environ.get("USERPROFILE", "")
+    if user:
+        winget_dig = Path(user) / (
+            r"AppData\Local\Microsoft\WinGet\Packages"
+            r"\ISC.Bind_Microsoft.Winget.Source_8wekyb3d8bbwe\dig.exe")
+        if winget_dig.is_file():
+            return str(winget_dig)
+    return "dig"
+
+
 def fetch_ech_config_b64(hostname: str, dig: str) -> str:
     """Resolve `hostname` HTTPS RR via dig, extract the ech= SvcParam.
 
@@ -279,8 +303,8 @@ def main() -> int:
     ap.add_argument("--listen-port", type=int, default=5354)
     ap.add_argument("--interface", default="any",
                     help="capture interface for tshark. Default: any (Linux); use --interface lo0 on macOS or a numeric NIC on Windows.")
-    ap.add_argument("--tshark", default="tshark")
-    ap.add_argument("--dig",    default="dig")
+    ap.add_argument("--tshark", default=find_tshark())
+    ap.add_argument("--dig",    default=find_dig())
     ap.add_argument("--keep-tmp", action="store_true",
                     help="don't delete the working directory on exit")
     args = ap.parse_args()
