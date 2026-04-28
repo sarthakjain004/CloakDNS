@@ -114,14 +114,40 @@ def collect_extension_types_from_pcap(pcap: pathlib.Path, tshark: str) -> list[l
     return parsed
 
 
+def find_tshark() -> str:
+    on_path = shutil.which("tshark")
+    if on_path:
+        return on_path
+    # Standard Windows install. Native path with .exe — subprocess.Popen on
+    # Windows can't resolve the MSYS-style /c/... form the bash shell uses.
+    win_default = pathlib.Path(r"C:\Program Files\Wireshark\tshark.exe")
+    if win_default.is_file():
+        return str(win_default)
+    return "tshark"  # let subprocess fail with a clear FileNotFoundError
+
+
+def find_dig() -> str:
+    on_path = shutil.which("dig")
+    if on_path:
+        return on_path
+    # winget-installed BIND on Windows lands here.
+    user = os.environ.get("USERPROFILE", "")
+    if user:
+        winget_dig = pathlib.Path(user) / (
+            r"AppData\Local\Microsoft\WinGet\Packages"
+            r"\ISC.Bind_Microsoft.Winget.Source_8wekyb3d8bbwe\dig.exe")
+        if winget_dig.is_file():
+            return str(winget_dig)
+    return "dig"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--interface", default="5",
                     help="tshark capture interface (default 5 = Wi-Fi on this dev box; "
                          "run `tshark -D` to see your numbering)")
-    ap.add_argument("--tshark", default=shutil.which("tshark") or
-                    "/c/Program Files/Wireshark/tshark")
-    ap.add_argument("--dig", default=shutil.which("dig") or "dig")
+    ap.add_argument("--tshark", default=find_tshark())
+    ap.add_argument("--dig", default=find_dig())
     args = ap.parse_args()
 
     if sys.platform != "win32":
