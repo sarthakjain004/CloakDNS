@@ -155,6 +155,30 @@ the radically different content — that's the whole feature, observable.
 UDP payload of 136 bytes = 8 (UDP header) + **128 (DNS message)**.
 Exactly the configured `padding_block_size`.
 
+### Quick uniformity check via full frame length
+
+A more honest "what an on-path observer sees" view is the full
+Ethernet frame length — that's literally the bytes-on-the-wire size.
+Pulling just `frame.len` for the outbound DNS frames is a one-line
+sanity check that the padding actually flattens what an attacker
+could measure:
+
+```
+$ "/c/Program Files/Wireshark/tshark.exe" -r pad-test.pcap \
+    -Y "dns and ip.dst == 1.1.1.1" \
+    -T fields -e frame.len
+
+170
+170
+```
+
+Two outbound DNS frames, identical 170-byte length on the wire
+(= 14 Ethernet + 20 IPv4 + 8 UDP + 128 padded DNS message). Without
+padding the same two queries would be 14 + 20 + 8 + 41 = **83**
+bytes for `example.com` and 14 + 20 + 8 + 87 = **129** bytes for the
+long subdomain — trivially distinguishable. With padding they're
+indistinguishable in size.
+
 ### Detailed dissection
 
 ```
