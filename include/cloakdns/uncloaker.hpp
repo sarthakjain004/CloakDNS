@@ -1,7 +1,7 @@
 #pragma once
 
 #include "cloakdns/blocklist.hpp"
-#include "cloakdns/upstream.hpp"
+#include "cloakdns/resolver.hpp"
 
 #include <asio/awaitable.hpp>
 
@@ -46,9 +46,9 @@ public:
     // because the inline initializers aren't fully visible until the
     // class definition closes (CWG 2335 / known Clang regression).
     // GCC and MSVC accept it; the overload split builds everywhere.
-    CnameUncloaker(UpstreamForwarder& forwarder,
+    CnameUncloaker(resolver::Resolver& resolver,
                    const Blocklist& blocklist);
-    CnameUncloaker(UpstreamForwarder& forwarder,
+    CnameUncloaker(resolver::Resolver& resolver,
                    const Blocklist& blocklist,
                    Config cfg);
 
@@ -65,9 +65,9 @@ public:
             std::span<const std::byte> first_response);
 
 private:
-    UpstreamForwarder& forwarder_;
-    const Blocklist& blocklist_;
-    Config cfg_;
+    resolver::Resolver& resolver_;
+    const Blocklist&    blocklist_;
+    Config              cfg_;
 };
 
 } // namespace cloak

@@ -11,7 +11,7 @@ add_executable(cloak_tests
     test_dns_parser.cpp
     test_dns_writer.cpp
     test_blocklist.cpp
-    test_upstream.cpp
+    test_resolver.cpp
     test_uncloaker.cpp
     test_cache.cpp
     test_edns_padding.cpp
@@ -20,7 +20,6 @@ add_executable(cloak_tests
     test_paths.cpp
     test_etld.cpp
     test_tls.cpp
-    test_dot.cpp
     test_http_client.cpp
     test_ech_bootstrap.cpp)
 target_include_directories(cloak_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

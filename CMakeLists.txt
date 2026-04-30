@@ -80,9 +80,12 @@ add_library(cloak_dns_core STATIC
     src/dns_parser.cpp
     src/dns_writer.cpp
     src/blocklist.cpp
-    src/upstream.cpp
-    src/upstream_dot.cpp
-    src/upstream_doh.cpp
+    src/resolver.cpp
+    src/udp_adapter.cpp
+    src/dot_adapter.cpp
+    src/doh_adapter.cpp
+    src/resolver_factory.cpp
+    src/server.cpp
     src/uncloaker.cpp
     src/cache.cpp
     src/edns_padding.cpp

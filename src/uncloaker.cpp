@@ -57,14 +57,14 @@ WalkOutput walk_answers(const DnsMessage& msg,
 
 } // namespace
 
-CnameUncloaker::CnameUncloaker(UpstreamForwarder& forwarder,
+CnameUncloaker::CnameUncloaker(resolver::Resolver& resolver,
                                const Blocklist& blocklist)
-    : CnameUncloaker(forwarder, blocklist, Config{}) {}
+    : CnameUncloaker(resolver, blocklist, Config{}) {}
 
-CnameUncloaker::CnameUncloaker(UpstreamForwarder& forwarder,
+CnameUncloaker::CnameUncloaker(resolver::Resolver& resolver,
                                const Blocklist& blocklist,
                                Config cfg)
-    : forwarder_(forwarder), blocklist_(blocklist), cfg_(cfg) {}
+    : resolver_(resolver), blocklist_(blocklist), cfg_(cfg) {}
 
 asio::awaitable<UncloakResult>
 CnameUncloaker::uncloak(string_view original_qname,
@@ -153,7 +153,7 @@ CnameUncloaker::uncloak(string_view original_qname,
 
         vector<byte> req;
         try {
-            // Placeholder id; the forwarder rewrites it to a fresh
+            // Placeholder id; the Resolver rewrites it to a fresh
             // random value on the wire per M4's Kaminsky defense.
             req = build_a_query(result.chain.back(), /*id=*/0);
         } catch (const exception&) {
@@ -162,7 +162,7 @@ CnameUncloaker::uncloak(string_view original_qname,
             co_return result;
         }
         try {
-            owned_packet = co_await forwarder_.forward(req);
+            owned_packet = co_await resolver_.forward(req);
         } catch (const exception&) {
             result.status = UncloakStatus::Aborted;
             result.abort_reason = "re-query failed";
