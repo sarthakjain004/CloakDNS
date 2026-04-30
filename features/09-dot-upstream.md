@@ -216,26 +216,26 @@ The rest of the record looks identical to a UDP-upstream record:
 
 Three pieces.
 
-### 1. The DoT framing helper (`src/upstream_dot.cpp:55`)
+### 1. The DoT framing helper (`src/dot_adapter.cpp:38`)
 
 DNS-over-TLS uses TCP-DNS framing (RFC 1035 §4.2.2): a 2-byte
 big-endian length prefix in front of each DNS message.
 
 ```cpp
-// src/upstream_dot.cpp:55
-std::vector<std::byte> dot_frame(std::span<const std::byte> msg) {
+// src/dot_adapter.cpp:38
+vector<byte> dot_frame(span<const byte> msg) {
     if (msg.size() > 0xffffu)
-        throw std::runtime_error{"dot_frame: message > 65535 bytes"};
-    std::vector<std::byte> out(msg.size() + 2);
-    write_u16_be(std::span<std::byte>{out}, 0,
-                 static_cast<std::uint16_t>(msg.size()));
+        throw runtime_error{"dot_frame: message > 65535 bytes"};
+    vector<byte> out(msg.size() + 2);
+    write_u16_be(span<byte>{out}, 0,
+                 static_cast<uint16_t>(msg.size()));
     std::copy(msg.begin(), msg.end(), out.begin() + 2);
     return out;
 }
 ```
 
 Adds 2 bytes at the front, returns a fresh buffer. The
-corresponding `dot_read_framed` function (line 69) reads 2 bytes,
+corresponding `dot_read_framed` function (line 48) reads 2 bytes,
 interprets them as a length, then reads exactly that many DNS bytes
 off the TLS stream.
 
@@ -243,41 +243,44 @@ Both functions live inside the TLS stream (after the handshake).
 The framing bytes go through TLS encryption like everything else;
 nothing is leaked unencrypted.
 
-### 2. The single-shot exchange (`src/upstream_dot.cpp:100`)
+### 2. The single-shot exchange (`src/dot_adapter.cpp:87`)
+
+`DotAdapter` is a `cloak::resolver::Adapter` subclass; its
+`try_once` virtual is what the Resolver calls per attempt. The
+Adapter owns its own `tls::Context` for the lifetime of the
+Resolver, so SNI / cert pinning / ECH config can be re-bound
+hot via `Control::swap_ech_config` without touching the hot
+path.
 
 ```cpp
-// src/upstream_dot.cpp:100
-asio::awaitable<std::optional<std::vector<std::byte>>>
-dot_try_once(asio::io_context& ctx,
-             tls::Context& tls_ctx,
-             const asio::ip::tcp::endpoint& server,
-             const std::string& servername,
-             std::span<const std::byte> outbound,
-             std::chrono::milliseconds timeout) {
-    auto stream = std::make_shared<asio::ssl::stream<asio::ip::tcp::socket>>(
-        ctx, tls_ctx.asio_context());
+// src/dot_adapter.cpp:87
+asio::awaitable<optional<UpstreamReply>>
+DotAdapter::try_once(span<const byte> outbound,
+                     chrono::milliseconds timeout) override {
+    auto stream = make_shared<asio::ssl::stream<asio::ip::tcp::socket>>(
+        ctx_, tls_ctx_->asio_context());
 
-    asio::steady_timer timer{ctx};
+    asio::steady_timer timer{ctx_};
     timer.expires_after(timeout);
-    timer.async_wait([stream](const std::error_code& ec) {
+    timer.async_wait([stream](const error_code& ec) {
         if (!ec) {
-            std::error_code ignore;
+            error_code ignore;
             stream->lowest_layer().cancel(ignore);
         }
     });
 
-    if (!servername.empty() &&
+    if (!cfg_.servername.empty() &&
         !tls::configure_ssl_for_connection(stream->native_handle(),
-                                           tls_ctx.config(), servername)) {
-        co_return std::nullopt;
+                                           *tls_cfg_, cfg_.servername)) {
+        co_return nullopt;
     }
 
     try {
-        co_await stream->lowest_layer().async_connect(server, asio::use_awaitable);
+        co_await stream->lowest_layer().async_connect(cfg_.server, use_awaitable);
         co_await stream->async_handshake(
-            asio::ssl::stream_base::client, asio::use_awaitable);
+            asio::ssl::stream_base::client, use_awaitable);
     } catch (const std::system_error&) {
-        co_return std::nullopt;
+        co_return nullopt;
     }
     // ... write framed query, read framed response, return ...
 }
@@ -290,54 +293,68 @@ Step by step:
 2. Arm a timeout that cancels the socket when fired.
 3. `configure_ssl_for_connection` sets the SNI, hostname for cert
    matching (`SSL_set1_host`), and — when the build has
-   `CLOAKDNS_HAVE_ECH` and the config carries an ECHConfigList —
-   ECH parameters. This is the single helper used by all three TLS
-   paths (DoT here, DoH, ECH).
+   `CLOAKDNS_HAVE_ECH` and the Adapter's tls::Context carries an
+   ECHConfigList — ECH parameters. This is the single helper used
+   by all three TLS paths (DoT here, DoH, ECH).
 4. `async_connect` opens the TCP connection.
 5. `async_handshake` does the TLS handshake. Any failure is
-   converted to `nullopt` so the caller can try the next upstream.
+   converted to `nullopt` so the Resolver can try the next Adapter.
 6. After this, the framed write/read happens (omitted above).
 
-Because `dot_try_once` is a coroutine, the entire sequence is
+Because `try_once` is a coroutine, the entire sequence is
 non-blocking. CloakDNS can be handling a thousand other queries
 on the same thread while waiting for the TLS handshake to
 complete.
 
-### 3. The dispatch in the forwarder (`src/upstream.cpp:203`)
+### 3. How the Resolver picks DoT (`src/resolver_factory.cpp` + `src/resolver.cpp`)
 
-Inside `UpstreamForwarder::forward_with_source`, the protocol enum
-selects which path to take:
+There is no runtime protocol switch any more. When `protocol = "dot"`,
+`cloak::resolver::build_from_config()` (`src/resolver_factory.cpp`)
+constructs one `DotAdapter` per configured server and hands the
+vector to the `Resolver` constructor:
 
 ```cpp
-// src/upstream.cpp:203
-if (cfg_.protocol == Protocol::Dot) {
-    bool is_primary = true;
-    for (std::size_t i = 0; i < cfg_.tcp_servers.size(); ++i) {
-        const auto& server = cfg_.tcp_servers[i];
-        const int attempts = is_primary ? (1 + cfg_.retries_on_primary) : 1;
-        is_primary = false;
-        for (int a = 0; a < attempts; ++a) {
-            auto resp = co_await detail::dot_try_once(
-                ctx_, *tls_ctx_, server, cfg_.servername, outbound, cfg_.timeout);
-            if (!resp) continue;
-            if (resp->size() < 12) continue;
-            const uint16_t resp_id = read_u16_be(*resp, 0);
-            if (resp_id != our_id) continue;
-            if (!reply_matches_request(client_query, *resp)) continue;
-            write_u16_be(std::span<std::byte>{*resp}, 0, client_id);
-            co_return ForwardResult{
-                .response = std::move(*resp),
-                ...
-            };
-        }
-    }
-    throw std::runtime_error{"upstream: all DoT servers exhausted"};
+// src/resolver_factory.cpp ~line 28 (DoT branch)
+for (const auto& ep : cfg.servers) {
+    asio::ip::tcp::endpoint tcp_ep{
+        asio::ip::make_address(ep.host), ep.port};
+    out.push_back(make_dot_adapter(ctx, DotAdapterConfig{
+        .server     = tcp_ep,
+        .servername = cfg.servername,
+        .spki_pins  = cfg.spki_pins,
+        ...
+    }));
 }
+```
+
+The Resolver's hot path is protocol-agnostic — it walks the Adapter
+vector with retry / RFC 5452 ID match / question echo, and any
+Adapter (UDP, DoT, DoH) plugs in identically:
+
+```cpp
+// src/resolver.cpp:80
+for (size_t i = 0; i < adapters.size(); ++i) {
+    const bool is_primary = (i == 0);
+    const int  attempts   = is_primary
+        ? (1 + cfg.retries_on_primary) : 1;
+    auto& adapter = *adapters[i];
+
+    for (int a = 0; a < attempts; ++a) {
+        auto reply = co_await adapter.try_once(outbound, cfg.timeout);
+        if (!reply) continue;
+        if (reply->bytes.size() < 12) continue;
+        if (read_u16_be(reply->bytes, 0) != our_id) continue;
+        if (!reply_matches_request(client_query, reply->bytes)) continue;
+        write_u16_be(span<byte>{reply->bytes}, 0, client_id);
+        co_return ForwardResult{ ... };
+    }
+}
+throw runtime_error{"resolver: all adapters exhausted"};
 ```
 
 Same pattern as the UDP path:
 
-- Loop over every configured upstream server.
+- Loop over every configured Adapter.
 - Retry the primary up to `retries_on_primary + 1` times before
   failing over to the secondary.
 - On a successful framed response, sanity-check it: minimum size,
@@ -358,7 +375,9 @@ upstream round-trip you'd pay anyway.
 For high-volume deployments, connection pooling is a roadmap item.
 RFC 7858 §3.4 explicitly allows long-lived idle connections; the
 underlying asio + OpenSSL machinery supports it; the work is
-adding the pool data structure to `UpstreamForwarder`.
+adding the pool data structure inside `DotAdapter`
+(`src/dot_adapter.cpp`) — a clean fit since each DotAdapter already
+owns its own TLS context and target endpoint.
 
 ### What you can verify yourself
 
@@ -384,8 +403,9 @@ adding the pool data structure to `UpstreamForwarder`.
   captured tshark output.
 - **`learnings/demo-doh-dot-ech.md`** — full Wireshark walkthrough
   reading these handshakes.
-- **Source files:** [`src/upstream_dot.cpp`](../src/upstream_dot.cpp),
-  [`src/upstream.cpp`](../src/upstream.cpp),
+- **Source files:** [`src/dot_adapter.cpp`](../src/dot_adapter.cpp),
+  [`src/resolver.cpp`](../src/resolver.cpp),
+  [`src/resolver_factory.cpp`](../src/resolver_factory.cpp),
   [`src/tls.cpp`](../src/tls.cpp).
 - Related features: DoH upstream, ECH, SPKI cert pinning, EDNS0
   padding.

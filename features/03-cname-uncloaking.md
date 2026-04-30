@@ -268,7 +268,7 @@ to the tracker — which is much bigger than one DNS round trip.
 
 Three pieces wire this together.
 
-### 1. The decision to uncloak (`src/main.cpp`)
+### 1. The decision to uncloak (`src/server.cpp`)
 
 After the qname-level blocklist check passes (i.e. the queried name
 itself isn't in any tier), `handle()` calls into the uncloaker only
@@ -276,14 +276,14 @@ for **address qtypes** (A and AAAA — the qtypes that follow CNAME
 chains):
 
 ```cpp
-// src/main.cpp ~line 208
+// src/server.cpp ~line 223
 if (is_address_qtype(qtype)) {
     auto result = co_await uncloaker.uncloak(qname, upstream_resp);
     switch (result.status) {
-    case cloak::UncloakStatus::Blocked:
+    case UncloakStatus::Blocked:
         response = qtype == kTypeAAAA
-            ? cloak::build_block_aaaa_response(query, msg)
-            : cloak::build_block_a_response(query, msg);
+            ? build_block_aaaa_response(query, msg)
+            : build_block_a_response(query, msg);
         std::cout << "uncloak " << qname << "  via " << result.hit.rule;
         log_chain(std::cout, result.chain);
         // ... write log + send response ...

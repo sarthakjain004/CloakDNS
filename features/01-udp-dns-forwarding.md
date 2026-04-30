@@ -186,13 +186,13 @@ which is mostly just the time to `co_await` the upstream socket.
 
 Three pieces wire this together.
 
-### The UDP listener (`src/main.cpp`)
+### The UDP listener (`src/server.cpp`)
 
 The daemon opens a UDP socket on the configured `listen_addr:port`
 and runs an Asio coroutine that loops on `async_receive_from`:
 
 ```cpp
-// src/main.cpp ~line 315 (in the listener loop)
+// src/server.cpp ~line 295 (inside serve())
 n = co_await sock.async_receive_from(
     asio::buffer(recv_buf), from, use_awaitable);
 ```
@@ -202,10 +202,10 @@ For each received datagram, it spawns a fresh coroutine via
 serialise on each other:
 
 ```cpp
-// src/main.cpp ~line 332
-asio::co_spawn(io,
+// src/server.cpp ~line 316
+asio::co_spawn(sock.get_executor(),
     handle(std::move(copy), from, sock, std::move(snapshot),
-           fwd, uncloaker, cache, logger),
+           resolver, uncloaker, cache, logger),
     asio::detached);
 ```
 
@@ -213,7 +213,7 @@ asio::co_spawn(io,
 
 ### The per-query handler
 
-`handle()` (in `src/main.cpp`, line 99) does this:
+`handle()` (in `src/server.cpp`, line 119) does this:
 
 1. Parses the DNS message bytes (`cloak::parse(query)`).
 2. Refuses unsupported qtypes (ANY/AXFR/IXFR — see the abuse-qtype
@@ -225,8 +225,8 @@ asio::co_spawn(io,
    for *this* feature:
 
    ```cpp
-   // src/main.cpp ~line 189
-   auto fwd_result = co_await fwd.forward_with_source(query);
+   // src/server.cpp ~line 204
+   auto fwd_result = co_await resolver.forward_with_source(query);
    auto upstream_resp = std::move(fwd_result.response);
    const auto upstream_str = fwd_result.upstream;
    ```
@@ -234,25 +234,29 @@ asio::co_spawn(io,
 6. Sends the upstream's answer back to the original client over the
    same UDP socket, and writes a log record.
 
-### The forward path (`src/upstream.cpp`)
+### The forward path (`src/resolver.cpp` + `src/udp_adapter.cpp`)
 
-`UpstreamForwarder::forward_with_source` (line 166) is the function
-that actually talks to the upstream. For UDP mode (`protocol = "udp"`)
-it does:
+`cloak::resolver::Resolver::forward_with_source` is the public API
+(declared in `include/cloakdns/resolver.hpp`). The implementation
+lives in `Resolver::Impl::forward` in `src/resolver.cpp`. The
+single-shot per-protocol exchange — the actual UDP send/recv pair —
+sits behind the `Adapter` interface and is implemented in
+`src/udp_adapter.cpp`.
+
+Before any Adapter is touched, `forward` rewrites the transaction ID
+and pads the query once. The padded buffer is reused across every
+retry / fallback so each upstream sees identical wire bytes:
 
 ```cpp
-// src/upstream.cpp ~line 170 onwards
+// src/resolver.cpp:64
 const uint16_t client_id = read_u16_be(client_query, 0);
 std::uniform_int_distribution<uint32_t> dist{0, 0xffff};
-const uint16_t our_id = static_cast<uint16_t>(dist(rng_));
+const uint16_t our_id = static_cast<uint16_t>(dist(rng));
 
-std::vector<std::byte> outbound;
-if (cfg_.padding_block_size == 0) {
-    outbound.assign(client_query.begin(), client_query.end());
-} else {
-    outbound = pad_query(client_query, cfg_.padding_block_size);
-}
-write_u16_be(std::span<std::byte>{outbound}, 0, our_id);
+vector<byte> outbound = (cfg.padding_block_size == 0)
+    ? vector<byte>(client_query.begin(), client_query.end())
+    : pad_query(client_query, cfg.padding_block_size);
+write_u16_be(span<byte>{outbound}, 0, our_id);
 ```
 
 Two things happen before sending:
@@ -266,30 +270,39 @@ Two things happen before sending:
   pads the outgoing query to a multiple of `padding_block_size` bytes
   so an observer can't infer the queried name from packet length.
 
-Then the loop over configured servers (with retries on the primary):
+Then the loop over configured Adapters (with retries on the primary):
 
 ```cpp
-// src/upstream.cpp ~line 183
-if (cfg_.protocol == Protocol::Udp) {
-    bool is_primary = true;
-    for (std::size_t i = 0; i < cfg_.servers.size(); ++i) {
-        const auto& server = cfg_.servers[i];
-        const int attempts = is_primary ? (1 + cfg_.retries_on_primary) : 1;
-        is_primary = false;
-        for (int a = 0; a < attempts; ++a) {
-            auto resp = co_await try_once_udp(outbound, server, our_id, client_query);
-            if (resp) {
-                write_u16_be(std::span<std::byte>{*resp}, 0, client_id);
-                co_return ForwardResult{
-                    .response = std::move(*resp),
-                    .upstream = ep_to_string(server),
-                };
-            }
-        }
+// src/resolver.cpp:80
+for (size_t i = 0; i < adapters.size(); ++i) {
+    const bool is_primary = (i == 0);
+    const int  attempts   = is_primary
+        ? (1 + cfg.retries_on_primary) : 1;
+    auto& adapter = *adapters[i];
+
+    for (int a = 0; a < attempts; ++a) {
+        auto reply = co_await adapter.try_once(outbound, cfg.timeout);
+        if (!reply) continue;
+        if (reply->bytes.size() < 12) continue;
+        if (read_u16_be(reply->bytes, 0) != our_id) continue;
+        if (!reply_matches_request(client_query, reply->bytes)) continue;
+
+        write_u16_be(span<byte>{reply->bytes}, 0, client_id);
+        co_return ForwardResult{
+            .response = std::move(reply->bytes),
+            .upstream = string{adapter.label()},
+            ...
+        };
     }
-    throw std::runtime_error{"upstream: all servers exhausted"};
 }
+throw runtime_error{"resolver: all adapters exhausted"};
 ```
+
+For UDP mode, every Adapter in the vector is a `UdpAdapter`
+(constructed by `cloak::resolver::build_from_config()` in
+`src/resolver_factory.cpp`). The `Adapter::try_once` virtual method
+is what picks the protocol — UDP, DoT, or DoH — without the Resolver
+needing to know.
 
 When the upstream replies, the response's transaction ID is rewritten
 back to the client's original ID before returning — `dig` only
@@ -322,7 +335,9 @@ io_context to multiplex thousands of in-flight queries naturally.
 - **DNS primer:** [`docs/01-dns-primer.md`](../docs/01-dns-primer.md)
 - **RFC 1035** — the DNS wire format.
 - **RFC 5452 §6** — transaction-ID randomization (why we swap the ID).
-- **Source files:** [`src/main.cpp`](../src/main.cpp),
-  [`src/upstream.cpp`](../src/upstream.cpp).
+- **Source files:** [`src/server.cpp`](../src/server.cpp),
+  [`src/resolver.cpp`](../src/resolver.cpp),
+  [`src/udp_adapter.cpp`](../src/udp_adapter.cpp),
+  [`include/cloakdns/resolver.hpp`](../include/cloakdns/resolver.hpp).
 - Related features in this directory: domain blocking, cache,
   CNAME uncloaking, structured query log, DoT/DoH/ECH upstreams.

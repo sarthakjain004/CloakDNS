@@ -334,17 +334,17 @@ in flight on the same thread are unaffected.
 The `thread_local` RNG (line 31) means contention-free random
 numbers across the request handlers; no shared mutex on the RNG.
 
-### 5. The handler glue (`src/main.cpp`)
+### 5. The handler glue (`src/server.cpp`)
 
 ```cpp
-// src/main.cpp ~line 173
-if (auto key = cloak::make_cache_key(msg)) {
+// src/server.cpp ~line 191
+if (auto key = make_cache_key(msg)) {
     if (auto cached = cache.lookup(*key, msg.header.id)) {
-        co_await cloak::apply_jitter(cfg.cache.jitter_max);
+        co_await apply_jitter(cache.jitter_max());
         co_await sock.async_send_to(
             asio::buffer(*cached), from, use_awaitable);
         std::cout << "cached  " << qname << std::endl;
-        log_record(cloak::LogAction::Cached, qname, qtype);
+        log_record(LogAction::Cached, qname, qtype);
         co_return;
     }
 }

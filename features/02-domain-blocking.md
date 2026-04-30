@@ -343,27 +343,27 @@ doubleclick.net                  ← MATCH; return this iterator
 The matcher returns the **shortest** matching suffix (the rule itself,
 not the queried name) so logs and dashboards can group hits by rule.
 
-### 3. The block-response synthesis (`src/main.cpp` ~line 154)
+### 3. The block-response synthesis (`src/server.cpp` ~line 172)
 
 When `bl.match(qname)` returns a hit, `handle()` builds a synthesised
 DNS response — never touching the upstream:
 
 ```cpp
-// src/main.cpp:154
+// src/server.cpp:172
 const auto hit = bl.match(qname);
 if (hit.blocked) {
-    std::vector<std::byte> response;
+    vector<byte> response;
     switch (qtype) {
       case kTypeA:
-        response = cloak::build_block_a_response(query, msg); break;
+        response = build_block_a_response(query, msg); break;
       case kTypeAAAA:
-        response = cloak::build_block_aaaa_response(query, msg); break;
+        response = build_block_aaaa_response(query, msg); break;
       default:
-        response = cloak::build_block_nodata_response(query, msg); break;
+        response = build_block_nodata_response(query, msg); break;
     }
     std::cout << "block   " << qname << "  via " << hit.rule
               << "  qtype=" << qtype << std::endl;
-    log_record(cloak::LogAction::Block, qname, qtype, hit.rule);
+    log_record(LogAction::Block, qname, qtype, hit.rule);
     co_await sock.async_send_to(
         asio::buffer(response), from, use_awaitable);
     co_return;

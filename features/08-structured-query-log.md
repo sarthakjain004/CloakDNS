@@ -288,14 +288,15 @@ tiny lambda captures the per-query state once and re-uses it across
 each branch:
 
 ```cpp
-// src/main.cpp ~line 112 — per-query log helper
-auto log_record = [&](cloak::LogAction action,
-                      const std::string& qname,
+// src/server.cpp ~line 132 — per-query log helper
+auto log_record = [&](LogAction action,
+                      const string& qname,
                       uint16_t qtype,
-                      std::string rule = "",
-                      std::vector<std::string> chain = {},
-                      std::optional<std::string> upstream = std::nullopt) {
-    cloak::QueryLog rec;
+                      string rule = "",
+                      vector<string> chain = {},
+                      optional<string> upstream = nullopt,
+                      optional<tls::EchStatus> ech = nullopt) {
+    QueryLog rec;
     rec.ts          = wallclock_start;
     rec.qname       = qname;
     rec.qtype       = qtype;
@@ -304,8 +305,11 @@ auto log_record = [&](cloak::LogAction action,
     rec.cname_chain = std::move(chain);
     rec.upstream    = std::move(upstream);
     rec.client      = to_string_via_stream(from);
-    rec.latency_ms  = std::chrono::duration<double, std::milli>(
-        std::chrono::steady_clock::now() - t0).count();
+    rec.latency_ms  = chrono::duration<double, std::milli>(
+        chrono::steady_clock::now() - t0).count();
+    if (ech && *ech != tls::EchStatus::NotTried) {
+        rec.tls_ech_status = string{tls::to_string(*ech)};
+    }
     logger.log(std::move(rec));
 };
 ```
