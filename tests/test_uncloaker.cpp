@@ -1,8 +1,8 @@
 #include "cloakdns/blocklist.hpp"
 #include "cloakdns/dns_parser.hpp"
 #include "cloakdns/dns_writer.hpp"
+#include "cloakdns/resolver.hpp"
 #include "cloakdns/uncloaker.hpp"
-#include "cloakdns/upstream.hpp"
 #include "cloakdns/aliases.hpp"
 
 #include <asio/buffer.hpp>
@@ -225,16 +225,22 @@ struct UncloakFixture {
     asio::io_context ctx;
     FakeUpstream fake{ctx};
     cloak::Blocklist bl;
-    optional<cloak::UpstreamForwarder> fwd;
+    unique_ptr<cloak::resolver::Resolver> resolver;
     optional<cloak::CnameUncloaker> uc;
 
     UncloakFixture() {
-        fwd.emplace(ctx, cloak::UpstreamForwarder::Config{
-            .servers = {fake.endpoint()},
-            .timeout = 150ms,
-            .retries_on_primary = 0,
-        });
-        uc.emplace(*fwd, bl);
+        vector<cloak::resolver::AdapterPtr> adapters;
+        adapters.push_back(cloak::resolver::make_udp_adapter(ctx,
+            cloak::resolver::UdpAdapterConfig{
+                .server = fake.endpoint(),
+                .label  = "fake-udp",
+            }));
+        resolver = make_unique<cloak::resolver::Resolver>(
+            ctx, cloak::resolver::Resolver::Config{
+                .timeout            = 150ms,
+                .retries_on_primary = 0,
+            }, std::move(adapters));
+        uc.emplace(*resolver, bl);
     }
 
     cloak::UncloakResult run(string_view qname,
