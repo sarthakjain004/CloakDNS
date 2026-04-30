@@ -429,7 +429,11 @@ key).
   captured tshark output.
 - **`tools/e2e/verify_ech.py`** — automated wire-level harness.
 - **Source files:** [`src/tls.cpp`](../src/tls.cpp),
-  [`src/upstream.cpp`](../src/upstream.cpp),
+  [`src/ech_bootstrap.cpp`](../src/ech_bootstrap.cpp),
+  [`src/dot_adapter.cpp`](../src/dot_adapter.cpp),
+  [`src/doh_adapter.cpp`](../src/doh_adapter.cpp),
+  [`src/resolver.cpp`](../src/resolver.cpp) (`Control::swap_ech_config`
+  fan-out across Adapters on SIGHUP/reload),
   [`CMakeLists.txt`](../CMakeLists.txt).
 - Related features: DoT upstream, DoH upstream, SPKI cert pinning,
   EDNS0 padding.

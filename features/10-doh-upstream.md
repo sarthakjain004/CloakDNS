@@ -196,37 +196,36 @@ which has the same cosmetic `:53` quirk.
 
 Three pieces.
 
-### 1. The DoH-specific layer (`src/upstream_doh.cpp`)
+### 1. The DoH-specific layer (`src/doh_adapter.cpp`)
 
-Tiny, thin file. Just calls into the generic HTTPS POST helper
+Tiny, thin file. `DohAdapter` is a `cloak::resolver::Adapter`
+subclass; its `try_once` calls into the generic HTTPS POST helper
 with the right headers + path:
 
 ```cpp
-// src/upstream_doh.cpp:24
-asio::awaitable<std::optional<std::vector<std::byte>>>
-doh_try_once(asio::io_context& ctx,
-             tls::Context& tls_ctx,
-             const asio::ip::tcp::endpoint& server,
-             const std::string& host_header,
-             const std::string& path,
-             std::span<const std::byte> outbound,
-             std::chrono::milliseconds timeout) {
+// src/doh_adapter.cpp:43
+asio::awaitable<optional<UpstreamReply>>
+DohAdapter::try_once(span<const byte> outbound,
+                     chrono::milliseconds timeout) override {
     auto resp = co_await http::post_https_oneshot(
-        ctx, tls_ctx, server, host_header, path,
+        ctx_, *tls_ctx_, cfg_.server, cfg_.servername, cfg_.doh_path,
         "application/dns-message", outbound, timeout);
-    if (!resp) co_return std::nullopt;
-    if (resp->status != 200) co_return std::nullopt;
+    if (!resp) co_return nullopt;
+    if (resp->status != 200) co_return nullopt;
 
     // RFC 8484 §6: a compliant server returns Content-Type
     // application/dns-message. Cloudflare and Quad9 both honor this;
     // if we ever see something else we should fail rather than try
     // to parse it as DNS.
     if (!resp->content_type.empty() &&
-        resp->content_type.find("application/dns-message") == std::string::npos) {
-        co_return std::nullopt;
+        resp->content_type.find("application/dns-message") == string::npos) {
+        co_return nullopt;
     }
 
-    co_return std::move(resp->body);
+    co_return UpstreamReply{
+        .bytes      = std::move(resp->body),
+        .ech_status = resp->ech_status,
+    };
 }
 ```
 
@@ -300,38 +299,33 @@ through to the end. Any malformed framing — missing
 The hard cap of 16 KB on the head + 64 KB on the body protects
 against malicious responses that try to fill memory.
 
-### 4. Dispatch in the forwarder (`src/upstream.cpp:227`)
+### 4. How the Resolver picks DoH (`src/resolver_factory.cpp` + `src/resolver.cpp`)
+
+There is no runtime protocol switch. When `protocol = "doh"`,
+`cloak::resolver::build_from_config()` (`src/resolver_factory.cpp`)
+constructs one `DohAdapter` per configured server and hands the
+vector to `Resolver`:
 
 ```cpp
-// src/upstream.cpp:227 (DoH branch — same shape as DoT)
-if (cfg_.protocol == Protocol::Doh) {
-    bool is_primary = true;
-    for (std::size_t i = 0; i < cfg_.tcp_servers.size(); ++i) {
-        const auto& server = cfg_.tcp_servers[i];
-        const int attempts = is_primary ? (1 + cfg_.retries_on_primary) : 1;
-        is_primary = false;
-        for (int a = 0; a < attempts; ++a) {
-            auto resp = co_await detail::doh_try_once(
-                ctx_, *tls_ctx_, server, cfg_.servername,
-                cfg_.doh_path, outbound, cfg_.timeout);
-            if (!resp) continue;
-            if (resp->size() < 12) continue;
-            const uint16_t resp_id = read_u16_be(*resp, 0);
-            if (resp_id != our_id) continue;
-            if (!reply_matches_request(client_query, *resp)) continue;
-            write_u16_be(std::span<std::byte>{*resp}, 0, client_id);
-            co_return ForwardResult{.response = std::move(*resp), ...};
-        }
-    }
-    throw std::runtime_error{"upstream: all DoH servers exhausted"};
+// src/resolver_factory.cpp ~line 49 (DoH branch)
+for (const auto& ep : cfg.servers) {
+    asio::ip::tcp::endpoint tcp_ep{
+        asio::ip::make_address(ep.host), ep.port};
+    out.push_back(make_doh_adapter(ctx, DohAdapterConfig{
+        .server     = tcp_ep,
+        .servername = cfg.servername,
+        .doh_path   = cfg.doh_path,
+        .spki_pins  = cfg.spki_pins,
+        ...
+    }));
 }
 ```
 
-Same retry + sanity-check pattern as the DoT branch. The
-transaction-ID swap and question-section validation
-(`reply_matches_request`) happen identically — DoT and DoH both
-deliver raw DNS bytes inside their respective transports, so the
-DNS-layer machinery is the same.
+The Resolver hot path (`src/resolver.cpp:80`) then walks the Adapter
+vector with the same retry / RFC 5452 ID match / question-echo
+pattern documented in feature #9 §3 — DoT and DoH both deliver raw
+DNS bytes inside their respective transports, so the DNS-layer
+machinery is identical.
 
 ### What you can verify yourself
 
@@ -358,9 +352,10 @@ DNS-layer machinery is the same.
   inside DoH; nothing about HTTP changes the DNS spoof model).
 - **`docs/09-verification.md` §DoH** — verification procedure with
   captured tshark output.
-- **Source files:** [`src/upstream_doh.cpp`](../src/upstream_doh.cpp),
+- **Source files:** [`src/doh_adapter.cpp`](../src/doh_adapter.cpp),
   [`src/http_client.cpp`](../src/http_client.cpp),
-  [`src/upstream.cpp`](../src/upstream.cpp),
+  [`src/resolver.cpp`](../src/resolver.cpp),
+  [`src/resolver_factory.cpp`](../src/resolver_factory.cpp),
   [`src/tls.cpp`](../src/tls.cpp).
 - Related features: DoT upstream, ECH (encrypts the SNI), SPKI cert
   pinning, EDNS0 padding.

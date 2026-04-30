@@ -354,7 +354,11 @@ find them.
 - **DigiNotar 2011 incident** — example of why CA-only trust isn't
   enough.
 - **Source files:** [`src/tls.cpp`](../src/tls.cpp),
-  [`src/upstream.cpp`](../src/upstream.cpp).
+  [`include/cloakdns/tls_adapter.hpp`](../include/cloakdns/tls_adapter.hpp)
+  (the shared `make_tls_for_adapter` helper that wires `spki_pins`
+  into each Adapter's TLS context),
+  [`src/dot_adapter.cpp`](../src/dot_adapter.cpp),
+  [`src/doh_adapter.cpp`](../src/doh_adapter.cpp).
 - **Unit tests:** [`tests/test_tls.cpp`](../tests/test_tls.cpp).
 - **`docs/09-verification.md` §SPKI pinning** — verification
   procedure with concrete pin values from a real run.

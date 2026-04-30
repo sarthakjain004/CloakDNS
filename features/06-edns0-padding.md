@@ -235,25 +235,24 @@ padding: 128-byte blocks
 
 Two pieces.
 
-### 1. Where padding is applied (`src/upstream.cpp:176`)
+### 1. Where padding is applied (`src/resolver.cpp:75`)
 
-Before sending the outgoing query upstream, the forwarder calls
-`pad_query`:
+Before handing the outbound bytes to any Adapter, `Resolver::Impl::forward`
+calls `pad_query`:
 
 ```cpp
-// src/upstream.cpp:176
-std::vector<std::byte> outbound;
-if (cfg_.padding_block_size == 0) {
-    outbound.assign(client_query.begin(), client_query.end());
-} else {
-    outbound = pad_query(client_query, cfg_.padding_block_size);
-}
-write_u16_be(std::span<std::byte>{outbound}, 0, our_id);
+// src/resolver.cpp:75
+vector<byte> outbound = (cfg.padding_block_size == 0)
+    ? vector<byte>(client_query.begin(), client_query.end())
+    : pad_query(client_query, cfg.padding_block_size);
+write_u16_be(span<byte>{outbound}, 0, our_id);
 ```
 
-Same place for UDP, DoT, DoH paths — the padding sits between the
-client query coming in and the bytes going out, regardless of
-upstream protocol.
+The padding happens once, in the Resolver, before any Adapter is
+called — so UDP, DoT, and DoH all see the same padded buffer. The
+per-protocol single-shot code in `src/udp_adapter.cpp` /
+`src/dot_adapter.cpp` / `src/doh_adapter.cpp` never knows padding
+exists.
 
 ### 2. The padding builder (`src/edns_padding.cpp:60`)
 
@@ -365,6 +364,6 @@ what this implementation targets.
 - **`docs/09-verification.md` §EDNS0 padding** — verification
   procedure with captured tshark output.
 - **Source files:** [`src/edns_padding.cpp`](../src/edns_padding.cpp),
-  [`src/upstream.cpp`](../src/upstream.cpp).
+  [`src/resolver.cpp`](../src/resolver.cpp).
 - **Unit tests:** [`tests/test_edns_padding.cpp`](../tests/test_edns_padding.cpp).
 - Related features: UDP forwarding, DoT upstream, DoH upstream, ECH.

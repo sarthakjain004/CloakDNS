@@ -182,13 +182,13 @@ Read across:
 
 Two pieces.
 
-### 1. The qtype whitelist accepts modern types (`src/main.cpp:59`)
+### 1. The qtype whitelist accepts modern types (`src/server.cpp:51`)
 
 The same `is_forwardable_qtype` switch from feature #13 enumerates
 the modern qtypes:
 
 ```cpp
-// src/main.cpp:59
+// src/server.cpp:51
 case 28:  // AAAA
 case 33:  // SRV
 case 35:  // NAPTR
@@ -207,14 +207,14 @@ literally one `case`. When the IETF defines the next service-
 binding type (or whatever post-HTTPS qtype comes), the patch is a
 one-line change.
 
-### 2. Address-qtype routing into the uncloaker (`src/main.cpp:208`)
+### 2. Address-qtype routing into the uncloaker (`src/server.cpp:223`)
 
 CNAME uncloaking applies only to **address qtypes** — A and AAAA
 — because those are the ones that return CNAME chains followed by
 A/AAAA terminator records:
 
 ```cpp
-// src/main.cpp ~line 208
+// src/server.cpp ~line 223
 if (is_address_qtype(qtype)) {
     auto result = co_await uncloaker.uncloak(qname, upstream_resp);
     // ... (block / suspect / clean handling — see feature #3)
@@ -224,7 +224,7 @@ if (is_address_qtype(qtype)) {
 `is_address_qtype` is a small helper:
 
 ```cpp
-// near the top of main.cpp
+// near the top of server.cpp
 bool is_address_qtype(uint16_t q) {
     return q == kTypeA || q == kTypeAAAA;
 }

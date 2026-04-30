@@ -165,10 +165,10 @@ Notice:
 
 Two pieces.
 
-### 1. The forwardable-qtype whitelist (`src/main.cpp:53`)
+### 1. The forwardable-qtype whitelist (`src/server.cpp:51`)
 
 ```cpp
-// src/main.cpp:53
+// src/server.cpp:51
 // Whitelist of qtypes safe to forward as a recursive-resolver front end.
 // Notably excludes ANY (255) and AXFR/IXFR (252/251) — abuse vectors with
 // no normal-client use case. Includes only the qtypes a desktop OS or
@@ -212,17 +212,17 @@ Adding support means changing one line. The maintenance cost of
 "opt-in via whitelist" is much lower than the security cost of
 "deny via blacklist that you have to remember to extend."
 
-### 2. The handler refuse path (`src/main.cpp:142`)
+### 2. The handler refuse path (`src/server.cpp:163`)
 
 ```cpp
-// src/main.cpp:142
+// src/server.cpp:163
 // 1. Reject multi-question and unsupported qtypes (ANY, AXFR, ...)
 //    before consulting the blocklist. Chrome never asks these; if
 //    something does, it's almost certainly abuse.
 if (msg.questions.size() != 1 || !is_forwardable_qtype(qtype)) {
-    auto response = cloak::build_refused_response(query, msg);
+    auto response = build_refused_response(query, msg);
     std::cout << "refuse  " << qname << "  qtype=" << qtype << std::endl;
-    log_record(cloak::LogAction::Refuse, qname, qtype);
+    log_record(LogAction::Refuse, qname, qtype);
     co_await sock.async_send_to(
         asio::buffer(response), from, use_awaitable);
     co_return;

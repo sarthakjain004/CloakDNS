@@ -137,9 +137,9 @@ That's because `reload_test.py` ends with `p.terminate()` →
 `p.kill()` to clean up — a hard process termination that doesn't let
 the QueryLogger flush its in-memory queue. For a clean shutdown,
 send the daemon SIGINT (Ctrl-C) instead — that triggers
-`ctx.stop()` (line 519 in `src/main.cpp`) which lets the logger
-drain. Hot reload itself never affects the log; only the test
-harness's cleanup does.
+`ctx.stop()` (in `src/server.cpp`'s shutdown signal handler) which
+lets the logger drain. Hot reload itself never affects the log;
+only the test harness's cleanup does.
 
 ---
 
@@ -147,18 +147,13 @@ harness's cleanup does.
 
 Three pieces.
 
-### 1. Atomic swap pattern (`src/main.cpp:281`)
+### 1. Atomic swap pattern (`src/server.cpp`)
 
-The daemon stores the active blocklist in a `std::shared_ptr` held
-behind an internal accessor:
-
-```cpp
-// src/main.cpp ~line 281
-// Hot-reload-friendly shared-pointer holder. main() builds each
-// fresh Blocklist into a new shared_ptr; the listener loads its
-// current shared_ptr per query (so in-flight queries keep using
-// the old Blocklist they snapshotted).
-```
+`Server::Impl` stores the active blocklist in a `std::shared_ptr`
+behind a `blocklist_load` / `blocklist_store` pair. The reload
+handler builds a fresh `Blocklist` and atomically replaces the
+shared_ptr; the listener loads the current shared_ptr per query so
+in-flight queries keep using the snapshot they took.
 
 Each query handler at the start of its work makes a shared snapshot
 of the *current* blocklist. The reload logic later replaces that
@@ -173,10 +168,10 @@ This is the idiomatic "left-right" pattern for read-mostly data.
 No locks on the hot path. The cost is one shared_ptr load per
 query, which is essentially free.
 
-### 2. The signal handler (`src/main.cpp:526`)
+### 2. The signal handler (`src/server.cpp:495`)
 
 ```cpp
-// src/main.cpp ~line 526
+// src/server.cpp ~line 495
 #if defined(_WIN32)
     constexpr int kReloadSignal = SIGBREAK;
     const char* kReloadName = "SIGBREAK";
@@ -185,19 +180,25 @@ query, which is essentially free.
     const char* kReloadName = "SIGHUP";
 #endif
     asio::signal_set reload_signals{ctx, kReloadSignal};
-    std::function<void(const std::error_code&, int)> on_reload;
-    on_reload = [&](const std::error_code& ec, int) {
+    std::function<void(const error_code&, int)> on_reload;
+    on_reload = [this, &reload_signals, &on_reload, kReloadName]
+                (const error_code& ec, int) {
         if (ec) return;   // cancelled (e.g. shutdown)
         try {
-            std::cout << "\nreload (" << kReloadName << "): rebuilding blocklist" << std::endl;
-            auto fresh = std::make_shared<cloak::Blocklist>(build_blocklist(cfg));
+            std::cout << "\nreload (" << kReloadName
+                      << "): rebuilding blocklist" << std::endl;
+            Config fresh_cfg = cfg;
+            if (!reload_path.empty()) fresh_cfg = load_config(reload_path);
+            auto fresh = make_shared<Blocklist>(build_blocklist(fresh_cfg));
             blocklist_store(std::move(fresh));
+            // Plus: if ECH is enabled, re-bootstrap and call
+            // resolver->control().swap_ech_config(...) so every
+            // Adapter's tls::Context atomically picks up new bytes.
         } catch (const std::exception& e) {
             std::cerr << "reload failed (" << e.what()
-                      << ") — keeping previous blocklist" << std::endl;
+                      << ") — keeping previous state" << std::endl;
         }
-        // Re-arm.
-        reload_signals.async_wait(on_reload);
+        reload_signals.async_wait(on_reload);   // re-arm
     };
 ```
 
@@ -223,7 +224,7 @@ DnsCache. That's intentional:
   your rules did.
 - If a previously-allowed domain is now blocked, the next query
   hits the **block check first** in `handle()` (before cache
-  lookup; see `02-domain-blocking.md` and main.cpp:154). So the
+  lookup; see `02-domain-blocking.md` and server.cpp:172). So the
   new rule wins regardless of cache state.
 - If a previously-blocked-now-allowed domain is queried, the
   qname-level block is gone, the cache had no entry (because the

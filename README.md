@@ -1,26 +1,75 @@
 # CloakDNS
 
-A DNS-level tracker and ad blocker written in modern C++20. CloakDNS sits in
-front of your machine's resolver, drops queries to known tracker, ad, and
-fingerprinting domains before any TCP connection is opened, and follows CNAME
-chains so trackers cloaked as first-party subdomains don't slip past.
+**A privacy guard that runs on your computer (or home network) and quietly
+blocks the companies that track you across apps and websites.**
 
-CloakDNS targets gaps that browser extensions can't close: CNAME-cloaked
-tracking that browsers see as first-party, the client-side pixel leg of
-server-side conversion APIs (Meta CAPI, TikTok Events, sGTM — pure
-backend-to-backend traffic is outside any local DNS's reach, but most
-deployments fire a browser pixel in parallel that we do block), and
-non-browser apps (smart TVs, IoT, native apps) that an extension never sees.
-The feature set is grounded in published web-tracking research rather than a
-hand-written tracker list — every blocking layer maps to a paper in
-`papers/`. See [`CLAUDE.md`](CLAUDE.md) for the full feature matrix and
-research justifications.
+## What does it actually do?
 
-> **Status:** in active development. The resolver core (M0–M12) plus the
-> encrypted upstream stack — DoT, DoH, and opt-in ECH (M19a, M19b, M20) —
-> is implemented, tested, and runs as a Linux daemon / Windows service.
-> Some roadmap items (DoH/DoT bypass detection, GPC-aware logging, admin
-> UI) are not yet shipped — see [Roadmap](#roadmap).
+When you open a website or app, your device first asks "where do I find this
+server?" — that lookup is what DNS does. Most apps don't just ask for the
+website you wanted. They also ask, in the background, for dozens of trackers,
+ad networks, fingerprinters, and analytics services. CloakDNS sits in the
+middle of that conversation and refuses to look up the tracker addresses, so
+your device never even connects to them. The pages and apps you actually use
+still work; the parts that exist only to watch you don't.
+
+You'd run CloakDNS if:
+
+- You want **one setting** that protects every app on your computer, not just
+  your browser. Mail clients, system processes, native apps, mobile games —
+  all of them go through the same DNS pipe.
+- You also want to protect your **phone, smart TV, and IoT devices** on your
+  home network. Those devices completely ignore browser ad blockers.
+- You want defenses against tricks that **browser ad blockers have given up
+  on** — for example, trackers that disguise themselves as part of the site
+  you're visiting. (Chrome's 2024 extension API change broke uBlock Origin's
+  ability to defeat this trick on Chrome.)
+- You'd rather lean on **what privacy researchers have actually measured**
+  than on a hand-curated tracker list. Every blocking tier in CloakDNS maps
+  back to a published academic paper — see the citations in
+  [`CLAUDE.md`](CLAUDE.md#research-justifications).
+
+## What it can't do
+
+CloakDNS blocks the *names* of tracking companies, not the trackers
+themselves. So it cannot help with:
+
+- Trackers that share a domain with the website you actually wanted
+  (first-party tracking).
+- Tracking that happens between two web servers without your device being
+  involved (server-to-server APIs like Meta Conversions, TikTok Events).
+  CloakDNS does block the **browser-side pixel** that almost every such
+  setup also fires — but the pure backend leg is invisible to any local
+  defense.
+- Fingerprinting that runs entirely inside your browser and never makes a
+  DNS request.
+
+For those layers you still want browser tools (uBlock Origin, NoScript, Brave
+Shields) or a full proxy. CloakDNS is the network layer that protects
+everything else.
+
+## How does it know what to block?
+
+Two sources, kept separate so you can mix them as you like:
+
+1. **Public community blocklists** — the same lists Pi-hole and uBlock use
+   (StevenBlack, OISD, EasyList, EasyPrivacy, Peter Lowe's list, NextDNS-CNAME).
+   The bundled `tools/update_blocklists.py` script downloads and merges them
+   for you on demand.
+2. **Research-derived priority tiers** — small, hand-tracked lists in
+   `tools/priority_tiers/` where every entry maps to a specific published
+   paper (citations in [`CLAUDE.md`](CLAUDE.md#research-justifications)).
+   For example, the cookie-syncing tier comes from a 2016 study that
+   observed *one tracker cookie being shared with 82 different companies*
+   — the sort of source that doesn't show up in a generic blocklist.
+
+Both sources update via the same script.
+
+> **Status:** the resolver core, blocklists, CNAME uncloaking, encrypted
+> upstream (DoT, DoH), and opt-in encrypted-ClientHello are all implemented,
+> tested, and run as a Linux daemon or Windows service. Some roadmap items
+> (DoH/DoT bypass detection, GPC-aware logging, an admin UI) aren't yet
+> built — see [Roadmap](#roadmap).
 
 ## Features
 
@@ -58,9 +107,8 @@ Implemented on `main`:
   outgoing ClientHello carries TLS extension `0xfe0d`, the cleartext
   SNI shows the configured outer name (`cover.defo.ie`), and the inner
   hostname (`defo.ie`) never appears in cleartext on the wire. A
-  reproduction harness lives at `tools/e2e/verify_ech.py` (manual run —
-  not yet wired into CI because the runners don't provision OpenSSL
-  4.0 or privileged `tshark`). AdGuard Home's tracking issue for this
+  reproduction harness lives at `tools/e2e/verify_ech.py`. AdGuard
+  Home's tracking issue for this
   ([#2558](https://github.com/AdguardTeam/AdGuardHome/issues/2558)) is
   still open; among the major self-hosted DNS sinkholes, CloakDNS
   appears to be the first to ship this.
@@ -76,10 +124,9 @@ Implemented on `main`:
 
 ## How CloakDNS compares
 
-A 2026-04-27 sweep of the eight closest products (Pi-hole, AdGuard Home,
-NextDNS, Blocky, AdGuard public DNS, Brave Shields, uBlock Origin, Safari
-ITP) is in `learnings/competitive-positioning.md`. Headline differentiators
-that hold up against that field:
+Compared against the eight closest products (Pi-hole, AdGuard Home, NextDNS,
+Blocky, AdGuard public DNS, Brave Shields, uBlock Origin, Safari ITP), the
+headline differentiators are:
 
 - **Single-binary encrypted upstream.** Pi-hole v6 (April 2026) still
   requires a `cloudflared` / Unbound / stubby sidecar for DoH/DoT;
@@ -94,7 +141,8 @@ that hold up against that field:
   (completed late 2024) removed the API gorhill needs. For the Chrome
   majority a CNAME-aware system DNS is the only remaining defence.
 - **Research-grounded blocklist with paper-level provenance.** Every
-  priority tier in `tools/priority_tiers/` maps to a paper in `papers/`.
+  priority tier in `tools/priority_tiers/` maps to a published paper
+  (citations in [`CLAUDE.md`](CLAUDE.md#research-justifications)).
   Per-rule provenance in logs is on the roadmap and would be unique
   among the eight.
 - **Cache TTL jitter as a DNS-timing-fingerprinting defence.** Cited
@@ -133,7 +181,9 @@ NextDNS).
                  └──────────────┘
 ```
 
-A walkthrough of every module is in [`docs/03-architecture.md`](docs/03-architecture.md).
+Per-feature deep-dives — including the code paths each one walks through
+— live in [`features/`](features/) (one numbered doc per feature, 14 in
+all).
 
 ## Requirements
 
@@ -180,8 +230,11 @@ generator.
    `127.0.0.1:5354` (unprivileged), so no `sudo` is needed for a smoke test:
 
    ```bash
-   ./build/cloakdns --config cloakdns.toml
+   ./build/cloakdns cloakdns.toml
    ```
+
+   The config path is a positional argument; if omitted, CloakDNS looks
+   for `cloakdns.toml` next to the binary or in the current directory.
 
 3. Verify it blocks a known tracker and resolves a clean name:
 
@@ -256,35 +309,28 @@ resolver pointing at CloakDNS.
 ## Testing
 
 - **Unit + integration:** GoogleTest under `tests/`, run via `ctest`. Covers
-  the parser, blocklist engine, cache, uncloaker, upstream forwarder, and
+  the parser, blocklist engine, cache, uncloaker, resolver (with fake
+  protocol adapters for retry / RFC 5452 ID match / EDNS0 padding), and
   config loader.
-- **Fuzzing:** libFuzzer harness in `tests/fuzz/fuzz_dns_parser.cpp`. CI runs
-  a 60-second smoke; for longer corpus runs see
-  [`docs/05-dev-setup.md`](docs/05-dev-setup.md).
+- **Fuzzing:** libFuzzer harness in `tests/fuzz/fuzz_dns_parser.cpp`. CI
+  runs a 60-second smoke on every PR.
 - **Sanitizers:** ASan, UBSan, and TSan all run clean. Linux CI builds two
   matrix variants; macOS builds ASan+UBSan only (Apple Clang has no
   LeakSanitizer).
-- **End-to-end captures:** `results/E2E_*.md` records real-traffic runs
-  (Chrome on Windows, India top-100 sweep). Capture-mining notes are in
-  `learnings/`.
+- **Live wire test:** `tools/e2e/verify_ech.py` boots CloakDNS against the
+  defo.ie ECH testbed, captures the upstream TLS handshake with `tshark`,
+  and asserts the inner SNI never appears in cleartext. Gated behind the
+  `ci:live-net` PR label so external-network flakiness doesn't break
+  unrelated PRs.
 
 ## Documentation
 
-- [`docs/01-dns-primer.md`](docs/01-dns-primer.md) — DNS protocol from the
-  ground up.
-- [`docs/02-tracking-background.md`](docs/02-tracking-background.md) — the
-  tracking research behind the feature set.
-- [`docs/03-architecture.md`](docs/03-architecture.md) — module-by-module.
-- [`docs/04-cpp-stack.md`](docs/04-cpp-stack.md) — C++20, Asio, modern CMake,
-  GoogleTest patterns used.
-- [`docs/05-dev-setup.md`](docs/05-dev-setup.md) — toolchain, sanitizers,
-  port-53 gotchas.
-- [`docs/06-implementation-roadmap.md`](docs/06-implementation-roadmap.md) —
-  ordered milestones with acceptance criteria.
-- [`learnings/`](learnings/) — postmortems and design notes from real
-  implementation problems (Windows `WSAECONNRESET`, Apple libc++
-  portability, Safari ITP cross-eTLD+1 detection, federated blocklist
-  refresh, DNS-over-Tor tradeoff analysis).
+- [`features/`](features/) — one numbered doc per shipped feature
+  (UDP forwarding, blocking, CNAME uncloaking, cache, padding, hot-reload,
+  query log, DoT, DoH, ECH, SPKI pinning, qtype handling). Each one walks
+  through the relevant code paths.
+- [`CLAUDE.md`](CLAUDE.md) — full feature matrix with research
+  justifications and the mapping from blocking layers to papers.
 
 ## Roadmap
 
@@ -296,7 +342,7 @@ Remaining work:
 |-------|--------------------------------------------------------|-------|
 | M20.1 | Auto-fetch ECHConfigList from HTTPS DNS RR (qtype 65)  | planned |
 | —     | DoH/DoT bypass detection (port 443/853 monitoring)     | planned |
-| —     | DNS-over-Tor optional upstream                         | analyzed, deferred (see `learnings/dns-over-tor-tradeoff.md`) |
+| —     | DNS-over-Tor optional upstream                         | analyzed, deferred |
 | —     | GPC-aware logging                                      | planned |
 | —     | Tracker-type tagging (Roesner Type A–E)                | planned |
 | —     | India-adtech priority tier (mined from E2E sweep)      | planned |
@@ -319,8 +365,8 @@ The feature set is grounded in:
 - *Cascading Spy Sheets* (NDSS 2025)
 - FP-Radar (PETS 2022)
 
-PDFs live in [`papers/`](papers/). The full mapping from each paper to the
-features they justify is in [`CLAUDE.md`](CLAUDE.md#research-justifications).
+The full mapping from each paper to the features it justifies is in
+[`CLAUDE.md`](CLAUDE.md#research-justifications).
 
 ## License
 
