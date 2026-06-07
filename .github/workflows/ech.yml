@@ -163,13 +163,16 @@ jobs:
           # Raw-TLS DoT-style upstream on 853 (privileged → sudo). -ech_key
           # loads the matching ECH private key so the server can decrypt the
           # inner ClientHello. -quiet keeps it from blocking on stdin.
-          sudo --preserve-env=LD_LIBRARY_PATH "${OPENSSL}" s_server \
+          # NB: `sudo --preserve-env=LD_LIBRARY_PATH` does NOT actually keep
+          # LD_LIBRARY_PATH (sudo strips LD_* for security), and the openssl4
+          # binary has no RPATH — so set it via `env` AFTER sudo instead.
+          sudo env LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" "${OPENSSL}" s_server \
             -accept 853 -naccept 10 \
             -cert server-cert.pem -key server-key.pem \
             -ech_key echconfig.pem -quiet &
           SERVER_PID=$!
           sleep 1
-          sudo --preserve-env=LD_LIBRARY_PATH python3 tools/e2e/verify_ech.py \
+          sudo env LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" python3 tools/e2e/verify_ech.py \
             --cloakdns build-ech/cloakdns \
             --upstream upstream.local \
             --upstream-ip 127.0.0.1 \
@@ -187,7 +190,7 @@ jobs:
           for d in /tmp/cloakdns-ech-*; do
             [ -d "$d" ] || continue
             echo "=== $d ==="
-            ls -la "$d" || true
+            sudo ls -la "$d" || true
             for f in "$d"/cloakdns.log "$d"/tshark.log; do
               [ -f "$f" ] || continue
               echo "--- $f ---"
@@ -259,7 +262,7 @@ jobs:
           for d in /tmp/cloakdns-ech-*; do
             [ -d "$d" ] || continue
             echo "=== $d ==="
-            ls -la "$d" || true
+            sudo ls -la "$d" || true
             for f in "$d"/cloakdns.log "$d"/tshark.log; do
               [ -f "$f" ] || continue
               echo "--- $f ---"
