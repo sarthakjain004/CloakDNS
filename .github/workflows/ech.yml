@@ -123,6 +123,14 @@ jobs:
         run: |
           set -euxo pipefail
           OPENSSL="${OPENSSL_PREFIX}/bin/openssl"
+          # The from-source OpenSSL 4.0 was installed with `make install_sw`,
+          # which omits the default openssl.cnf — the `openssl req` and
+          # `s_server` apps abort when they can't open it. Drop a minimal
+          # config at the build's configured openssldir so every openssl4
+          # invocation finds it by default (no OPENSSL_CONF juggling).
+          sudo mkdir -p "${OPENSSL_PREFIX}/ssl"
+          printf '[req]\ndistinguished_name = dn\n[dn]\n' \
+            | sudo tee "${OPENSSL_PREFIX}/ssl/openssl.cnf" >/dev/null
           # ECHConfigList + private key. `openssl ech` is the OpenSSL 4.0
           # subcommand (HISTORY: added in 4.0); -public_name is the decoy
           # outer SNI the client sends in cleartext.
