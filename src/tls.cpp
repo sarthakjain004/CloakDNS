@@ -140,6 +140,13 @@ bool configure_ssl_for_connection(SSL* ssl,
                                   const string& real_sni) {
     if (!ssl || real_sni.empty()) return false;
 
+    // Start from a clean thread-local ERR queue. This runs per-connection
+    // on shared Asio worker threads; a stale entry left here (or by a prior
+    // OpenSSL call on this thread) would otherwise be misattributed by the
+    // ERR_print_errors_fp diagnostics below or by validate_ech_config_list /
+    // maybe_apply_ech_retry running later on the same thread.
+    ERR_clear_error();
+
 #ifdef CLOAKDNS_HAVE_ECH
     // Snapshot once: the underlying state can be swapped by SIGHUP /
     // retry-config handling between the load() and the SSL_* calls
@@ -157,9 +164,12 @@ bool configure_ssl_for_connection(SSL* ssl,
             ERR_print_errors_fp(stderr);
             return false;
         }
-        // ECHConfigList must be set before the outer-name override so the
-        // outer-name validator inside OpenSSL has a config to validate
-        // against. Order matters in OpenSSL 4.0+.
+        // Set the ECHConfigList before the outer-name override. The order
+        // is deliberate and safe (the outer name is a public_name override;
+        // the config is what defines the valid public_name), but note it is
+        // NOT a documented OpenSSL 4.0 requirement — it was lore from the
+        // ECH draft feature branch. Keep it, but don't treat it as a
+        // load-bearing API contract.
         const auto* bytes = reinterpret_cast<const unsigned char*>(
             ech.bytes->data());
         if (SSL_set1_ech_config_list(ssl, bytes, ech.bytes->size()) != 1) {
@@ -176,6 +186,7 @@ bool configure_ssl_for_connection(SSL* ssl,
                 return false;
             }
         }
+        ERR_clear_error();   // drain any non-fatal entries before success
         return true;
     }
 #endif
@@ -194,6 +205,7 @@ bool configure_ssl_for_connection(SSL* ssl,
         SSL_set_options(ssl, SSL_OP_ECH_GREASE);
     }
 #endif
+    ERR_clear_error();   // drain any non-fatal entries before success
     return true;
 }
 
@@ -205,12 +217,24 @@ EchStatus ech_status(SSL* ssl) noexcept {
     const int rc = SSL_ech_get1_status(ssl, &inner, &outer);
     if (inner) OPENSSL_free(inner);
     if (outer) OPENSSL_free(outer);
+    // The failure codes can leave diagnostics on the queue; drain them so a
+    // later ech_retry_config / validate_ech_config_list on this worker
+    // thread starts from a clean ERR queue.
+    ERR_clear_error();
     switch (rc) {
         case SSL_ECH_STATUS_SUCCESS:               return EchStatus::Success;
         case SSL_ECH_STATUS_GREASE:
         case SSL_ECH_STATUS_GREASE_ECH:            return EchStatus::Greased;
-        case SSL_ECH_STATUS_FAILED_ECH:
-        case SSL_ECH_STATUS_FAILED_ECH_BAD_NAME:   return EchStatus::FailedRetry;
+        // FAILED_ECH: server rejected ECH but supplied retry_configs whose
+        // public_name authenticated — safe to honour, so flag one retry.
+        case SSL_ECH_STATUS_FAILED_ECH:            return EchStatus::FailedRetry;
+        // FAILED_ECH_BAD_NAME: retry_configs arrived but the public_name
+        // certificate did NOT verify. RFC 9849 §6.1.6 forbids trusting
+        // retry_configs from an unauthenticated name, so do NOT retry —
+        // report a plain failure. (Any other unhandled status — the
+        // cert-verify BAD_NAME, the NULL-arg BAD_CALL, or the server-side
+        // BACKEND code — also collapses to Failed via the default arm.)
+        case SSL_ECH_STATUS_FAILED_ECH_BAD_NAME:   return EchStatus::Failed;
         case SSL_ECH_STATUS_NOT_TRIED:
         case SSL_ECH_STATUS_NOT_CONFIGURED:        return EchStatus::NotTried;
         default:                                   return EchStatus::Failed;
@@ -240,6 +264,7 @@ optional<vector<byte>> ech_retry_config(SSL* ssl) noexcept {
     const int rc = SSL_ech_get1_retry_config(ssl, &p, &len);
     if (rc != 1 || !p || len == 0) {
         if (p) OPENSSL_free(p);
+        ERR_clear_error();
         return nullopt;
     }
     vector<byte> out(len);
@@ -389,6 +414,10 @@ validate_ech_config_list(span<const byte> bytes) noexcept {
         return string{"validate: SSL_new failed"};
     }
     const auto* p = reinterpret_cast<const unsigned char*>(bytes.data());
+    // Clear first so the ERR_get_error() below reflects only THIS probe —
+    // the resulting string is surfaced to the user by config.cpp, so a
+    // leftover unrelated error would produce a misleading load failure.
+    ERR_clear_error();
     const int rc = SSL_set1_ech_config_list(tmp_ssl, p, bytes.size());
     SSL_free(tmp_ssl);
     SSL_CTX_free(tmp_ctx);
@@ -413,15 +442,17 @@ bool maybe_apply_ech_retry(Context& ctx, SSL* ssl) {
     if (ech_status(ssl) != EchStatus::FailedRetry) return false;
     auto retry = ech_retry_config(ssl);
     if (!retry) return false;
-    auto& ech = ctx.ech_config();
-    auto current = ech.load();
-    EchConfig::Snapshot fresh;
-    fresh.bytes = make_shared<const vector<byte>>(std::move(*retry));
-    fresh.outer_servername = current.outer_servername;
-    // Server just told us the previous config was stale — stamp the
-    // fresh bytes with "fetched now" so staleness tracking is honest.
-    fresh.fetched_at = chrono::system_clock::now();
-    ech.store(std::move(fresh));
+    // Atomic read-modify-write: swap in the fresh retry_config bytes while
+    // preserving outer_servername, with no load()/store() gap that a
+    // concurrent retry (a second in-flight handshake to the same upstream)
+    // or a SIGHUP reload could interleave with and clobber. The server just
+    // told us the previous config was stale, so stamp fetched_at = now() to
+    // keep staleness tracking honest.
+    ctx.ech_config().update([&](EchConfig::Snapshot& s) {
+        s.bytes      = make_shared<const vector<byte>>(std::move(*retry));
+        s.fetched_at = chrono::system_clock::now();
+        // s.outer_servername left untouched — preserved atomically.
+    });
     return true;
 }
 

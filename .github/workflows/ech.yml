@@ -7,10 +7,15 @@ name: ECH
 # Stages:
 #   1. build OpenSSL 4.0 (cached across runs by tag)
 #   2. build cloakdns -DCLOAKDNS_ECH=ON against it
-#   3. run unit tests (covers tls / svcb / ech_bootstrap / config)
-#   4. live wire test against defo.ie  — gated on the
-#      `ci:live-net` PR label so external-network flakiness doesn't
-#      break random PRs.
+#   3. run unit tests (covers tls / svcb / ech_bootstrap / config,
+#      including the configure_ssl_for_connection GREASE/plain paths
+#      and the EchConfig RMW + status-string contract)
+#   4. LOCAL wire test against `openssl s_server` with a locally-
+#      generated ECH key — runs on EVERY PR (no external network), so
+#      a change that breaks ECH on the wire is caught pre-merge.
+#   5. live wire test against defo.ie — gated on the `ci:live-net` PR
+#      label so external-network flakiness doesn't break random PRs.
+#      Belt-and-suspenders over stage 4 against a real CDN.
 
 on:
   push:
@@ -74,6 +79,114 @@ jobs:
         env:
           LD_LIBRARY_PATH: ${{ env.OPENSSL_PREFIX }}/lib64:${{ env.OPENSSL_PREFIX }}/lib
         run: ctest --test-dir build-ech --output-on-failure
+
+  ech-wire-local:
+    name: Wire test / local openssl s_server / verify_ech.py
+    runs-on: ubuntu-latest
+    # No `if:` gate — this runs on every PR. It needs no external network:
+    # an `openssl s_server` with a locally-generated ECH key stands in for
+    # the upstream, and verify_ech.py captures the ClientHello cloakdns
+    # sends to it. This is the every-PR safety net the defo.ie job (below)
+    # can't be, since that one is label-gated for flakiness reasons.
+    needs: ech-build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore OpenSSL 4.0
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.OPENSSL_PREFIX }}
+          key: openssl-${{ env.OPENSSL_VERSION }}-ubuntu-latest-v1
+
+      - name: Install build deps + tshark + dig
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang-18 tshark dnsutils
+
+      - name: Configure cloakdns
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: |
+          cmake -S . -B build-ech -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCLOAKDNS_ECH=ON \
+            -DOPENSSL_ROOT_DIR="${OPENSSL_PREFIX}"
+
+      - name: Build
+        run: cmake --build build-ech -j --target cloakdns
+
+      - name: Generate a local ECH key + self-signed server cert
+        id: ech-keys
+        env:
+          LD_LIBRARY_PATH: ${{ env.OPENSSL_PREFIX }}/lib64:${{ env.OPENSSL_PREFIX }}/lib
+        run: |
+          set -euxo pipefail
+          OPENSSL="${OPENSSL_PREFIX}/bin/openssl"
+          # ECHConfigList + private key. `openssl ech` is the OpenSSL 4.0
+          # subcommand (HISTORY: added in 4.0); -public_name is the decoy
+          # outer SNI the client sends in cleartext.
+          "${OPENSSL}" ech -public_name cover.local -out echconfig.pem
+          echo "----- echconfig.pem -----"
+          cat echconfig.pem
+          # Extract the base64 ECHConfigList between the PEM markers — this
+          # is exactly what cloakdns wants for ech_config_list_b64.
+          ECH_B64="$(awk '/-----BEGIN ECHCONFIG-----/{f=1;next}/-----END ECHCONFIG-----/{f=0}f' echconfig.pem | tr -d '\n')"
+          if [ -z "${ECH_B64}" ]; then
+            echo "could not extract ECHCONFIG from echconfig.pem" >&2
+            exit 1
+          fi
+          echo "ech_b64=${ECH_B64}" >> "${GITHUB_OUTPUT}"
+          # Self-signed leaf for the inner name. cloakdns will reject the
+          # chain (untrusted), but the ClientHello — the thing we assert on
+          # — is already on the wire by the time cert verification runs.
+          "${OPENSSL}" req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout server-key.pem -out server-cert.pem \
+            -subj "/CN=upstream.local"
+
+      - name: Start openssl s_server with ECH, run local wire test
+        id: wire-test
+        env:
+          LD_LIBRARY_PATH: ${{ env.OPENSSL_PREFIX }}/lib64:${{ env.OPENSSL_PREFIX }}/lib
+          ECH_B64: ${{ steps.ech-keys.outputs.ech_b64 }}
+        run: |
+          set -euxo pipefail
+          OPENSSL="${OPENSSL_PREFIX}/bin/openssl"
+          # Raw-TLS DoT-style upstream on 853 (privileged → sudo). -ech_key
+          # loads the matching ECH private key so the server can decrypt the
+          # inner ClientHello. -quiet keeps it from blocking on stdin.
+          sudo --preserve-env=LD_LIBRARY_PATH "${OPENSSL}" s_server \
+            -accept 853 -naccept 10 \
+            -cert server-cert.pem -key server-key.pem \
+            -ech_key echconfig.pem -quiet &
+          SERVER_PID=$!
+          sleep 1
+          sudo --preserve-env=LD_LIBRARY_PATH python3 tools/e2e/verify_ech.py \
+            --cloakdns build-ech/cloakdns \
+            --upstream upstream.local \
+            --upstream-ip 127.0.0.1 \
+            --ech-outer cover.local \
+            --ech-config-b64 "${ECH_B64}" \
+            --protocol dot \
+            --interface any \
+            --keep-tmp
+          sudo kill "${SERVER_PID}" 2>/dev/null || true
+
+      - name: Dump verify_ech workdir on failure
+        if: failure() && steps.wire-test.outcome == 'failure'
+        run: |
+          echo "::group::verify_ech workdirs"
+          for d in /tmp/cloakdns-ech-*; do
+            [ -d "$d" ] || continue
+            echo "=== $d ==="
+            ls -la "$d" || true
+            for f in "$d"/cloakdns.log "$d"/tshark.log; do
+              [ -f "$f" ] || continue
+              echo "--- $f ---"
+              sudo cat "$f" || true
+            done
+          done
+          echo "::endgroup::"
 
   ech-wire-defo:
     name: Wire test / defo.ie / verify_ech.py

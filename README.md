@@ -103,11 +103,13 @@ Implemented on `main`:
 - **Opt-in Encrypted Client Hello on the outbound link (RFC 9849)** —
   encrypts the upstream TLS ClientHello so an on-path observer can't see
   which upstream we're speaking to. CMake-gated against OpenSSL 4.0+.
-  Live-verified on 2026-04-27 against the `defo.ie` ECH testbed: the
+  Verified manually on 2026-04-27 against the `defo.ie` ECH testbed: the
   outgoing ClientHello carries TLS extension `0xfe0d`, the cleartext
   SNI shows the configured outer name (`cover.defo.ie`), and the inner
-  hostname (`defo.ie`) never appears in cleartext on the wire. A
-  reproduction harness lives at `tools/e2e/verify_ech.py`. AdGuard
+  hostname (`defo.ie`) never appears in cleartext on the wire. CI builds
+  the ECH path against OpenSSL 4.0 and runs the unit tests plus a local
+  `openssl s_server` wire test on every PR (`.github/workflows/ech.yml`);
+  the reproduction harness lives at `tools/e2e/verify_ech.py`. AdGuard
   Home's tracking issue for this
   ([#2558](https://github.com/AdguardTeam/AdGuardHome/issues/2558)) is
   still open; among the major self-hosted DNS sinkholes, CloakDNS

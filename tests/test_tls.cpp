@@ -12,6 +12,7 @@
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/sha.h>
+#include <openssl/ssl.h>
 #include <openssl/x509.h>
 
 #include <gtest/gtest.h>
@@ -305,4 +306,117 @@ TEST(TlsContext, EchGreaseFlagFlows) {
     cfg.servername = "example.com";
     cfg.ech_grease = true;
     EXPECT_NO_THROW({ cloak::tls::Context ctx{cfg}; });
+}
+
+// --- to_string(EchStatus): the JSONL dashboard contract ---------------
+//
+// tls.hpp documents these strings as a stable contract the analytics
+// dashboard depends on (query_log emits them as `tls_ech_status`). Pin
+// every enumerator so a rename can't silently break the dashboard. Pure;
+// runs on every build, ECH or not.
+
+TEST(TlsEch, StatusToStringIsStable) {
+    using cloak::tls::EchStatus;
+    using cloak::tls::to_string;
+    EXPECT_EQ(to_string(EchStatus::NotTried),    "not_tried");
+    EXPECT_EQ(to_string(EchStatus::Greased),     "greased");
+    EXPECT_EQ(to_string(EchStatus::Success),     "success");
+    EXPECT_EQ(to_string(EchStatus::FailedRetry), "failed_retry_available");
+    EXPECT_EQ(to_string(EchStatus::Failed),      "failed");
+}
+
+// --- EchConfig::update(): atomic read-modify-write --------------------
+//
+// maybe_apply_ech_retry relies on update() to swap retry-config bytes
+// while preserving outer_servername under a single write lock. Verify the
+// preserve-outer-name semantics that the retry path depends on.
+
+TEST(TlsEchConfig, UpdateSwapsBytesAndPreservesOuterName) {
+    cloak::tls::EchConfig cfg;
+    cfg.store({.bytes = make_shared<const vector<byte>>(
+                            vector<byte>{byte{0x01}}),
+               .outer_servername = "cover.example"});
+
+    cfg.update([](cloak::tls::EchConfig::Snapshot& s) {
+        s.bytes = make_shared<const vector<byte>>(
+            vector<byte>{byte{0x02}, byte{0x03}});
+        // outer_servername deliberately left untouched, mirroring
+        // maybe_apply_ech_retry.
+    });
+
+    auto snap = cfg.load();
+    ASSERT_NE(snap.bytes, nullptr);
+    ASSERT_EQ(snap.bytes->size(), 2u);
+    EXPECT_EQ(to_integer<uint8_t>((*snap.bytes)[0]), 0x02u);
+    EXPECT_EQ(snap.outer_servername, "cover.example");   // preserved
+}
+
+// --- maybe_apply_ech_retry: no-op unless status is FailedRetry --------
+//
+// A null SSL* reports NotTried, so the function must return false and
+// leave the live config untouched (no spurious swap). Pure; the null-SSL
+// path is identical on ECH and non-ECH builds.
+
+TEST(TlsEch, MaybeApplyRetryIsNoopWhenNotFailedRetry) {
+    cloak::tls::ContextConfig cfg;
+    cfg.servername = "example.com";
+    cfg.ech.store({.bytes = make_shared<const vector<byte>>(
+                              vector<byte>{byte{0xaa}}),
+                   .outer_servername = "outer"});
+    cloak::tls::Context ctx{cfg};
+
+    EXPECT_FALSE(cloak::tls::maybe_apply_ech_retry(ctx, nullptr));
+
+    auto snap = ctx.ech_config().load();
+    ASSERT_NE(snap.bytes, nullptr);
+    ASSERT_EQ(snap.bytes->size(), 1u);
+    EXPECT_EQ(to_integer<uint8_t>((*snap.bytes)[0]), 0xaau);   // unchanged
+    EXPECT_EQ(snap.outer_servername, "outer");
+}
+
+// --- configure_ssl_for_connection: real SSL* wiring -------------------
+//
+// Exercises the helper against a throwaway SSL* (previously untested
+// beyond Context construction). Covers the empty-SNI guard, the plain
+// happy path, and — on ECH builds — that GREASE actually lands the
+// SSL_OP_ECH_GREASE option on the connection.
+
+TEST(TlsConfigureSsl, RejectsEmptyRealSni) {
+    cloak::tls::ContextConfig cfg;
+    cfg.servername = "example.com";
+    cloak::tls::Context ctx{cfg};
+    SSL* ssl = SSL_new(ctx.native());
+    ASSERT_NE(ssl, nullptr);
+    EXPECT_FALSE(cloak::tls::configure_ssl_for_connection(
+        ssl, ctx.config(), ""));
+    SSL_free(ssl);
+}
+
+TEST(TlsConfigureSsl, PlainPathSucceeds) {
+    cloak::tls::ContextConfig cfg;
+    cfg.servername = "example.com";
+    cloak::tls::Context ctx{cfg};
+    SSL* ssl = SSL_new(ctx.native());
+    ASSERT_NE(ssl, nullptr);
+    EXPECT_TRUE(cloak::tls::configure_ssl_for_connection(
+        ssl, ctx.config(), "example.com"));
+    SSL_free(ssl);
+}
+
+TEST(TlsConfigureSsl, GreaseOptionLandsOnSsl) {
+    cloak::tls::ContextConfig cfg;
+    cfg.servername  = "example.com";
+    cfg.ech_grease  = true;   // no real ECH bytes → GREASE branch
+    cloak::tls::Context ctx{cfg};
+    SSL* ssl = SSL_new(ctx.native());
+    ASSERT_NE(ssl, nullptr);
+    EXPECT_TRUE(cloak::tls::configure_ssl_for_connection(
+        ssl, ctx.config(), "example.com"));
+#ifdef CLOAKDNS_HAVE_ECH
+    EXPECT_TRUE((SSL_get_options(ssl) & SSL_OP_ECH_GREASE) != 0)
+        << "ech_grease=true must set SSL_OP_ECH_GREASE on the SSL";
+#else
+    GTEST_SUCCEED() << "no SSL_OP_ECH_GREASE on non-ECH builds";
+#endif
+    SSL_free(ssl);
 }

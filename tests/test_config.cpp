@@ -68,6 +68,36 @@ max_depth = 16
     EXPECT_EQ(c.uncloak.max_depth, 16);
 }
 
+// ---------- ECH knobs ----------
+//
+// ech_grease and ech_autobootstrap are parsed independently of
+// ech_enabled, so these don't trip the ech_supported() validation gate
+// and run on builds without CLOAKDNS_HAVE_ECH too.
+
+TEST(Config, EchKnobsDefaultOff) {
+    auto c = parse_config_toml("[upstream]\nservers = [\"1.1.1.1:53\"]\n");
+    EXPECT_FALSE(c.upstream.ech_enabled);
+    EXPECT_FALSE(c.upstream.ech_grease);
+    EXPECT_FALSE(c.upstream.ech_autobootstrap);
+}
+
+TEST(Config, EchGreaseParses) {
+    auto c = parse_config_toml(
+        "[upstream]\nservers = [\"1.1.1.1:53\"]\nech_grease = true\n");
+    EXPECT_TRUE(c.upstream.ech_grease);
+    EXPECT_FALSE(c.upstream.ech_enabled);   // grease is independent of ECH
+}
+
+TEST(Config, EchAutobootstrapParses) {
+    auto c = parse_config_toml(
+        "[upstream]\nservers = [\"1.1.1.1:53\"]\n"
+        "ech_autobootstrap = true\n"
+        "ech_bootstrap_servers = [\"1.0.0.1:53\"]\n");
+    EXPECT_TRUE(c.upstream.ech_autobootstrap);
+    ASSERT_EQ(c.upstream.ech_bootstrap_servers.size(), 1u);
+    EXPECT_EQ(c.upstream.ech_bootstrap_servers[0], (Endpoint{"1.0.0.1", 53}));
+}
+
 // ---------- schema failures ----------
 
 TEST(Config, PortOutOfRangeRejected) {

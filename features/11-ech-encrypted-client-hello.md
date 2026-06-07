@@ -117,10 +117,13 @@ endpoints.
 
 ## See it live
 
-Run end-to-end on **2026-04-28**. We use `defo.ie:443` as the
-upstream because it's the only publicly-accessible host that
-currently publishes a real ECH config we can use. The "DoH" layer
-on top will fail (defo.ie isn't a DoH server) — that's expected.
+Last run manually end-to-end on **2026-04-28** (the automated
+every-PR equivalent is the `ech-wire-local` CI job, which runs the
+same harness against a local `openssl s_server`). We use
+`defo.ie:443` as the upstream here because it's a publicly-accessible
+host that publishes a real ECH config. The "DoH" layer on top will
+fail (defo.ie isn't a DoH server) — that's expected; the assertions
+are about the captured ClientHello, not the DoH exchange.
 What we're verifying is the **TLS-level ECH behaviour**: extension
 present in the ClientHello, real hostname not in cleartext SNI.
 
@@ -165,15 +168,16 @@ The new fields:
   `public_name` baked into the ECHConfigList; defo.ie's
   ECHConfigList specifies `cover.defo.ie` as its public name.
 - `ech_config_list_b64` — base64-encoded ECHConfigList. Fetched
-  from defo.ie's HTTPS DNS record:
+  from defo.ie's HTTPS DNS record. `tools/e2e/verify_ech.py` does this
+  for you via `fetch_ech_config_b64()`; the underlying step is:
 
   ```
-  $ python tools/e2e/india_adtech_mine.py  # not the right script,
-  $ # but tools/e2e/verify_ech.py shows the bootstrap step
+  $ dig defo.ie TYPE65 @1.1.1.1 +short
   ```
 
-  Effectively: `dig defo.ie TYPE65 @1.1.1.1 +short` returns the
-  HTTPS RR, parse out the `ech=` SvcParam value, base64-encode.
+  which returns the HTTPS RR — parse out the `ech=` SvcParam value
+  (it is already base64) and paste it in. (Or set
+  `ech_autobootstrap = true` to have the daemon fetch it at startup.)
 
 ### Capture + run
 
@@ -271,57 +275,51 @@ Reasons it's opt-in:
   upstream.ech_enabled = true but this build was compiled
   without ECH support`).
 
-### 2. The TLS-level wiring (`src/tls.cpp:125`)
+### 2. The TLS-level wiring (`src/tls.cpp`)
 
 `configure_ssl_for_connection` is the single helper used by all
-three TLS paths (DoT, DoH, anything else). When the config carries
-an ECHConfigList AND the build has `CLOAKDNS_HAVE_ECH`, it sets
-the per-SSL ECH parameters:
+three TLS paths (DoT, DoH, anything else). The ECHConfigList lives
+behind a live-mutable `EchConfig` holder (a `shared_mutex` guarding a
+`shared_ptr<const vector<byte>>` snapshot), so SIGHUP reload and
+retry_configs handling can swap fresh bytes in atomically without
+rebuilding the surrounding `Context`. The helper snapshots that holder
+once via `cfg.ech.load()` and, when bytes are present AND the build has
+`CLOAKDNS_HAVE_ECH`, wires up the per-SSL ECH parameters (abridged —
+see the file for ERR-queue handling and the GREASE branch):
 
 ```cpp
-// src/tls.cpp:125
+// src/tls.cpp — abridged
 bool configure_ssl_for_connection(SSL* ssl,
                                   const ContextConfig& cfg,
                                   const std::string& real_sni) {
     if (!ssl || real_sni.empty()) return false;
+    ERR_clear_error();
 
 #ifdef CLOAKDNS_HAVE_ECH
-    if (!cfg.ech_config_list.empty()) {
-        // Inner SNI: real hostname; cert verification matches against this
-        // post-handshake. Goes inside the ECH-encrypted ClientHello.
-        if (SSL_set_tlsext_host_name(ssl, real_sni.c_str()) != 1) {
-            ERR_print_errors_fp(stderr);
-            return false;
-        }
-        if (SSL_set1_host(ssl, real_sni.c_str()) != 1) {
-            ERR_print_errors_fp(stderr);
-            return false;
-        }
-        // ECHConfigList must be set before the outer-name override so the
-        // outer-name validator inside OpenSSL has a config to validate
-        // against. Order matters in OpenSSL 4.0+.
+    // Snapshot once: a concurrent SIGHUP / retry swap can't pull the bytes
+    // out from under us — the snapshot's shared_ptr keeps them alive.
+    const auto ech = cfg.ech.load();
+    if (ech.bytes && !ech.bytes->empty()) {
+        // Inner SNI: real hostname, matched against the cert post-handshake,
+        // carried inside the ECH-encrypted ClientHello.
+        if (SSL_set_tlsext_host_name(ssl, real_sni.c_str()) != 1) return false;
+        if (SSL_set1_host(ssl, real_sni.c_str()) != 1) return false;
+        // ECHConfigList first, then the optional cleartext outer-name
+        // override (3rd arg 0 = honour our explicit decoy name).
         const auto* bytes = reinterpret_cast<const unsigned char*>(
-            cfg.ech_config_list.data());
-        if (SSL_set1_ech_config_list(ssl, bytes,
-                                     cfg.ech_config_list.size()) != 1) {
-            ERR_print_errors_fp(stderr);
+            ech.bytes->data());
+        if (SSL_set1_ech_config_list(ssl, bytes, ech.bytes->size()) != 1)
             return false;
-        }
-        // Outer SNI (cleartext): the decoy. When unset, OpenSSL uses the
-        // public_name embedded in the ECHConfigList. The third arg is the
-        // 4.0-introduced no_outer flag — 0 to honor our explicit name.
-        if (!cfg.ech_outer_servername.empty()) {
-            if (SSL_ech_set1_outer_server_name(ssl,
-                    cfg.ech_outer_servername.c_str(), 0) != 1) {
-                ERR_print_errors_fp(stderr);
-                return false;
-            }
-        }
+        if (!ech.outer_servername.empty() &&
+            SSL_ech_set1_outer_server_name(
+                ssl, ech.outer_servername.c_str(), 0) != 1)
+            return false;
         return true;
     }
 #endif
 
-    // ECH disabled or unavailable: standard SNI path.
+    // ECH disabled/unavailable: standard SNI path (+ optional GREASE ECH
+    // when cfg.ech_grease is set).
     if (SSL_set_tlsext_host_name(ssl, real_sni.c_str()) != 1) return false;
     if (SSL_set1_host(ssl, real_sni.c_str()) != 1) return false;
     return true;
@@ -355,7 +353,7 @@ lesson.
 ### 3. Wire-flow consequence
 
 Once `configure_ssl_for_connection` returns successfully, the next
-`async_handshake` call inside `dot_try_once` /
+`async_handshake` call inside `DotAdapter::try_once` /
 `post_https_oneshot` automatically does an ECH handshake — there's
 no separate ECH-specific code path in DoT/DoH. The ECH flag is
 attached to the SSL object and OpenSSL takes care of everything
@@ -383,15 +381,25 @@ The runtime function `tls::ech_supported()` returns this flag's
 value, which the config validator checks at startup:
 
 ```cpp
-// src/config.cpp ~line 125
+// src/config.cpp — abridged
 if (out.ech_enabled) {
     if (!tls::ech_supported()) {
         fail("upstream.ech_enabled = true but this build was compiled "
-             "without ECH support");
+             "without ECH support (CLOAKDNS_ECH=OFF) ...");
     }
-    if (out.ech_config_list.empty()) {
+    // Missing inline bytes are only fatal when autobootstrap is also off
+    // (autobootstrap can fill ech_config_list at startup).
+    if (out.ech_config_list.empty() && !out.ech_autobootstrap) {
         fail("upstream.ech_enabled = true but ech_config_list_b64 is "
-             "empty");
+             "missing AND ech_autobootstrap is off ...");
+    }
+    // Inline bytes get a dry-run through OpenSSL's parser so malformed
+    // base64-decoded bytes fail at load time, not on the first
+    // connection. (Bootstrap-fetched bytes are validated in server.cpp
+    // before they're swapped in.)
+    if (!out.ech_config_list.empty()) {
+        if (auto err = tls::validate_ech_config_list(out.ech_config_list))
+            fail("upstream.ech_config_list_b64: " + *err);
     }
 }
 ```

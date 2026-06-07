@@ -364,8 +364,20 @@ struct Server::Impl {
         ctx.run();
         ctx.restart();
         if (auto bytes = fut.get(); bytes && !bytes->empty()) {
-            cfg.upstream.ech_config_list = std::move(*bytes);
-            return true;
+            // Validate the fetched ECHConfigList through OpenSSL's parser
+            // before committing it. Otherwise malformed HTTPS-RR bytes are
+            // accepted here and only fail (silently, per-connection) at
+            // handshake time — which exhausts every upstream and SERVFAILs
+            // all resolution with no clear cause. On rejection, fall through
+            // to the inline ech_config_list_b64 fallback.
+            if (auto err = tls::validate_ech_config_list(*bytes)) {
+                std::cerr << "ech bootstrap: fetched ECHConfigList rejected ("
+                          << *err << ") — ignoring, falling back to inline"
+                          << std::endl;
+            } else {
+                cfg.upstream.ech_config_list = std::move(*bytes);
+                return true;
+            }
         }
         if (cfg.upstream.ech_config_list.empty()) {
             throw runtime_error{
@@ -532,9 +544,23 @@ struct Server::Impl {
                                 span<const asio::ip::udp::endpoint>{bootstrap_eps},
                                 fresh_cfg.upstream.servername,
                                 fresh_cfg.upstream.timeout);
-                            const bool got_fresh = bytes && !bytes->empty();
-                            if (got_fresh) {
-                                fresh_cfg.upstream.ech_config_list = std::move(*bytes);
+                            bool got_fresh = false;
+                            if (bytes && !bytes->empty()) {
+                                // Same as startup: reject malformed fetched
+                                // bytes before swapping them live, so a bad
+                                // re-bootstrap can't brick resolution. Keep
+                                // the previous config on rejection.
+                                if (auto err =
+                                        tls::validate_ech_config_list(*bytes)) {
+                                    std::cerr << "reload: fetched ECHConfigList "
+                                              << "rejected (" << *err << "); "
+                                              << "keeping previous config"
+                                              << std::endl;
+                                } else {
+                                    fresh_cfg.upstream.ech_config_list =
+                                        std::move(*bytes);
+                                    got_fresh = true;
+                                }
                             } else {
                                 std::cerr << "reload: ech bootstrap returned "
                                           << "no bytes; keeping previous "

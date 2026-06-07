@@ -333,6 +333,12 @@ def main() -> int:
                     help="upstream IP literal (so cloakdns doesn't have to bootstrap)")
     ap.add_argument("--ech-outer", default="cloudflare-ech.com",
                     help="outer (decoy) SNI to put on the wire. Default: cloudflare-ech.com")
+    ap.add_argument("--ech-config-b64", default=None,
+                    help="ECHConfigList (base64) to use DIRECTLY instead of "
+                         "fetching it from the upstream's HTTPS DNS RR via "
+                         "dig. Use for local/offline tests pointed at an "
+                         "`openssl s_server -ech_key ...`, where there is no "
+                         "HTTPS resource record to bootstrap from.")
     ap.add_argument("--protocol", choices=["dot", "doh"], default="doh")
     ap.add_argument("--listen-port", type=int, default=5354)
     ap.add_argument("--interface", default="any",
@@ -356,12 +362,18 @@ def main() -> int:
     upstream_port = 853 if args.protocol == "dot" else 443
     capture_filter = f"host {args.upstream_ip} and tcp port {upstream_port}"
 
-    print(f"fetching ECHConfigList for {args.upstream} via dig...", file=sys.stderr)
-    ech_b64 = fetch_ech_config_b64(args.upstream, args.dig)
+    if args.ech_config_b64:
+        ech_b64 = args.ech_config_b64.strip()
+        print(f"using ECHConfigList from --ech-config-b64 "
+              f"({len(ech_b64)} chars)", file=sys.stderr)
+    else:
+        print(f"fetching ECHConfigList for {args.upstream} via dig...",
+              file=sys.stderr)
+        ech_b64 = fetch_ech_config_b64(args.upstream, args.dig)
     try:
         base64.b64decode(ech_b64)
     except binascii.Error as e:
-        fail(f"ECHConfigList from dig is not valid base64: {e}")
+        fail(f"ECHConfigList is not valid base64: {e}")
 
     toml_path = write_cloakdns_toml(
         workdir,
