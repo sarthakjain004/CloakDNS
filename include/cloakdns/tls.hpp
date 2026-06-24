@@ -68,6 +68,18 @@ public:
         state_ = std::move(s);
     }
 
+    // Atomic read-modify-write under the write lock. Use when a caller must
+    // mutate part of the snapshot (e.g. swap retry-config bytes while
+    // preserving outer_servername) without the load()/store() gap that a
+    // concurrent store() — a SIGHUP reload or a second handshake's retry —
+    // could interleave with and clobber. `fn` receives the live Snapshot&;
+    // whatever it leaves behind becomes the new state.
+    template <class Fn>
+    void update(Fn&& fn) {
+        std::unique_lock lk{mu_};
+        fn(state_);
+    }
+
     bool enabled() const {
         std::shared_lock lk{mu_};
         return state_.bytes && !state_.bytes->empty();

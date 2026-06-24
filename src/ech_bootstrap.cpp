@@ -148,10 +148,11 @@ fetch_https_rr_rdata(asio::io_context& ctx,
                      const asio::ip::udp::endpoint& bootstrap,
                      string_view qname,
                      chrono::milliseconds timeout) {
+    // A 16-bit transaction ID is the only entropy a UDP DNS query carries;
+    // random_device alone is fine for a non-cryptographic txid (no need to
+    // spin up an mt19937 for a single draw).
     std::random_device rd;
-    std::uniform_int_distribution<uint32_t> dist{0, 0xffff};
-    std::mt19937 rng{rd()};
-    const auto our_id = static_cast<uint16_t>(dist(rng));
+    const auto our_id = static_cast<uint16_t>(rd());
 
     vector<byte> query;
     try {
@@ -164,6 +165,11 @@ fetch_https_rr_rdata(asio::io_context& ctx,
     try {
         sock->open(asio::ip::udp::v4());
         sock->bind(asio::ip::udp::endpoint{asio::ip::udp::v4(), 0});
+        // Connect the datagram socket to the bootstrap resolver: the kernel
+        // then drops any datagram NOT from that peer, closing the off-path
+        // source-spoofing window a bare recvfrom + manual `from == bootstrap`
+        // check would leave open (and letting us use async_receive).
+        sock->connect(bootstrap);
     } catch (const system_error&) {
         co_return nullopt;
     }
@@ -176,49 +182,61 @@ fetch_https_rr_rdata(asio::io_context& ctx,
             sock->cancel(ignore);
         }
     });
+    // Cancel the timer on EVERY exit path (send failure, timeout, parse,
+    // success). Without this, a failed bootstrap would keep the socket and
+    // an armed timer alive for the full `timeout` after we'd already given
+    // up. The captured `sock` shared_ptr is released when the cancelled
+    // wait handler runs.
+    struct TimerGuard {
+        asio::steady_timer& t;
+        ~TimerGuard() noexcept { try { t.cancel(); } catch (...) {} }
+    } timer_guard{timer};
 
     try {
-        co_await sock->async_send_to(
-            asio::buffer(query.data(), query.size()), bootstrap,
-            asio::use_awaitable);
+        co_await sock->async_send(
+            asio::buffer(query.data(), query.size()), asio::use_awaitable);
     } catch (const system_error&) {
         co_return nullopt;
     }
 
+    // Read until a reply whose txid matches our query arrives, or the timer
+    // cancels the socket. Spoofed/garbage datagrams (too short, unparseable,
+    // wrong txid) are skipped rather than treated as failure — a single
+    // forged packet must not make us abandon a live bootstrap server. Only a
+    // genuine, txid-matching answer ends the loop. The buffer is reused
+    // across iterations (we only ever read [0, n)).
     vector<byte> buf(kMaxResponse);
-    asio::ip::udp::endpoint from;
-    size_t n = 0;
-    try {
-        n = co_await sock->async_receive_from(
-            asio::buffer(buf.data(), buf.size()), from,
-            asio::use_awaitable);
-    } catch (const system_error&) {
-        co_return nullopt;
-    }
-    timer.cancel();
-    if (from != bootstrap) co_return nullopt;
-    if (n < 12)            co_return nullopt;
-
-    DnsMessage msg;
-    try {
-        msg = parse(span<const byte>{buf.data(), n});
-    } catch (const ParseError&) {
-        co_return nullopt;
-    }
-    if (msg.header.id != our_id) co_return nullopt;
-    if (msg.header.rcode != 0)   co_return nullopt;
-
-    // Find the first HTTPS-typed answer. The owner name should match
-    // qname (lowercased) but we don't double-check — we trust the
-    // resolver and the ID match.
-    for (const auto& rr : msg.answers) {
-        if (rr.type == kQTypeHttps) {
-            vector<byte> rdata(rr.rdata.size());
-            std::memcpy(rdata.data(), rr.rdata.data(), rr.rdata.size());
-            co_return rdata;
+    for (;;) {
+        size_t n = 0;
+        try {
+            n = co_await sock->async_receive(
+                asio::buffer(buf.data(), buf.size()), asio::use_awaitable);
+        } catch (const system_error&) {
+            co_return nullopt;   // operation_aborted on timeout, or hard error
         }
+        if (n < 12) continue;
+
+        DnsMessage msg;
+        try {
+            msg = parse(span<const byte>{buf.data(), n});
+        } catch (const ParseError&) {
+            continue;
+        }
+        if (msg.header.id != our_id) continue;   // not our query — keep waiting
+        if (msg.header.rcode != 0)   co_return nullopt;
+
+        // Find the first HTTPS-typed answer. The owner name should match
+        // qname (lowercased) but we don't double-check — we trust the
+        // resolver and the ID match.
+        for (const auto& rr : msg.answers) {
+            if (rr.type == kQTypeHttps) {
+                vector<byte> rdata(rr.rdata.size());
+                std::memcpy(rdata.data(), rr.rdata.data(), rr.rdata.size());
+                co_return rdata;
+            }
+        }
+        co_return nullopt;   // NOERROR, our txid, but no HTTPS answer
     }
-    co_return nullopt;
 }
 
 asio::awaitable<optional<vector<byte>>>

@@ -118,7 +118,7 @@ post_https_oneshot(asio::io_context& ctx,
 
     // RFC 9849 §6.1.6: on FailedRetry from the server, swap the freshly-
     // delivered ECHConfigList into tls_ctx and re-attempt the handshake
-    // exactly once. Same shape as upstream_dot.cpp's retry loop.
+    // exactly once. Same shape as dot_adapter.cpp's retry loop.
     shared_ptr<SslStream> stream;
     asio::steady_timer timer{ctx};
     bool handshake_ok = false;
