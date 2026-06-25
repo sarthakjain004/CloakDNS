@@ -85,6 +85,52 @@ loads; only the parasite is missing.
 
 ---
 
+## How this compares to Pi-hole and AdGuard Home
+
+CNAME uncloaking is no longer unique — and it's worth being precise
+about where CloakDNS actually differs, rather than overclaiming.
+
+**Parity on the core idea.** Pi-hole (via FTL's `CNAMEdeepInspect`,
+on by default) and AdGuard Home both walk the CNAME chain and block if
+any hop matches a rule. All three — including CloakDNS — match the
+CNAME **names** against the blocklist. None of them checks the
+*resolved IP* against tracker-network ranges. So on the headline
+"do you uncloak CNAMEs?" question, this is table stakes in 2026, not a
+differentiator. Don't sell it as one.
+
+**Where CloakDNS's implementation does more today:**
+
+1. **Active full-chain re-query.** If the upstream's answer doesn't
+   terminate the chain (no A/AAAA in the response), CloakDNS re-queries
+   the last CNAME target itself (`src/uncloaker.cpp`) and keeps walking,
+   up to `max_depth = 8` hops (RFC 1034 §3.6.2) with explicit loop
+   detection. The chain is followed even when it spans multiple
+   responses, not just the hops that happened to arrive in one packet.
+2. **Allowlist integration across the chain.** The same longest-match
+   allow/deny resolution used for direct queries (feature 04) applies at
+   every hop — an allowlisted parent rescues a chain that merely passes
+   through it, so legitimate Akamai/Cloudflare-fronted services aren't
+   collateral.
+3. **eTLD+1 awareness.** A chain that crosses an eTLD+1 boundary without
+   matching a rule is still surfaced as a `suspect` / `Suspicious` log
+   signal for the review queue, not silently forwarded.
+4. **Full chain in the structured log.** Every uncloak is logged with
+   the complete `cname_chain[]` and — as of the research-tier work — the
+   `category` of the rule that caught it (e.g. `cname-cloaking`), so you
+   can audit *why* and *where* in the chain a block happened.
+
+**The real differentiator is still on the roadmap.** Safari's ITP
+also checks the resolved **IP**, not just the name (Vekaria, *SoK: Web
+Tracking* 2025). Adding resolved-IP reputation — block on **name OR
+IP** — would catch cloaked trackers whose chain endpoint isn't on any
+name list but resolves into a known tracker's address space, which
+neither Pi-hole nor AdGuard does. That's tracked as item 5 in
+[`docs/research-roadmap.md`](../docs/research-roadmap.md); until it
+ships, treat CNAME uncloaking as solid parity plus the integration
+edges above — not as the thing that makes CloakDNS unique.
+
+---
+
 ## See it live
 
 This walkthrough was run end-to-end on **2026-04-28**. We use

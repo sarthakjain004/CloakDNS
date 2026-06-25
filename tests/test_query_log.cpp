@@ -102,10 +102,27 @@ TEST(JsonLine, IncludesSchemaVersion) {
     auto line = to_json_line(sample_record());
     // Schema version is the very first field — analytics consumers read
     // a fixed prefix to detect old logs. Bumped to 2 in M13 when
-    // LogAction::Suspicious was added; bumped to 3 when the optional
-    // tls_ech_status field was added (Phase 2 of ECH completion).
-    EXPECT_TRUE(line.starts_with("{\"v\":3,"))
+    // LogAction::Suspicious was added; to 3 when the optional
+    // tls_ech_status field was added (Phase 2 of ECH completion); to 4
+    // when the optional category (research-tier) field was added.
+    EXPECT_TRUE(line.starts_with("{\"v\":4,"))
         << "expected schema-version prefix, got: " << line.substr(0, 16);
+}
+
+TEST(JsonLine, EmitsCategoryWhenPresent) {
+    auto rec = sample_record(LogAction::Block);
+    rec.rule     = "analytics.tiktok.com";
+    rec.category = "server-side-endpoint";
+    auto line = to_json_line(rec);
+    EXPECT_NE(line.find("\"category\":\"server-side-endpoint\""), string::npos)
+        << "expected category field in: " << line;
+}
+
+TEST(JsonLine, OmitsCategoryWhenEmpty) {
+    auto rec = sample_record();   // category default-empty
+    auto line = to_json_line(rec);
+    EXPECT_EQ(line.find("\"category\""), string::npos)
+        << "category leaked into log line: " << line;
 }
 
 TEST(JsonLine, EmitsTlsEchStatusWhenPresent) {

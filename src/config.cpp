@@ -193,9 +193,39 @@ BlocklistConfig parse_blocklist(const toml::table& t) {
                 fail("blocklist.sources: entries must be path strings");
             out.sources.emplace_back(*s);
         }
-        if (out.sources.empty())
-            fail("blocklist.sources: must contain at least one path");
     }
+    // Optional named tiers: [[blocklist.tier]] with name + sources. Each
+    // tier's domains are loaded tagged with its name for log attribution.
+    if (auto arr = t["tier"].as_array()) {
+        for (const auto& el : *arr) {
+            const auto* tbl = el.as_table();
+            if (!tbl)
+                fail("blocklist.tier: each [[blocklist.tier]] must be a table");
+            BlocklistConfig::Tier tier;
+            auto name = (*tbl)["name"].value<string>();
+            if (!name || name->empty())
+                fail("blocklist.tier.name: required, must be a non-empty string");
+            tier.name = *name;
+            auto srcs = (*tbl)["sources"].as_array();
+            if (!srcs || srcs->empty())
+                fail("blocklist.tier.sources: required, must be a non-empty "
+                     "array of path strings (tier \"" + tier.name + "\")");
+            for (const auto& se : *srcs) {
+                auto s = se.value<string>();
+                if (!s)
+                    fail("blocklist.tier.sources: entries must be path strings "
+                         "(tier \"" + tier.name + "\")");
+                tier.sources.emplace_back(*s);
+            }
+            out.tiers.emplace_back(std::move(tier));
+        }
+    }
+    bool any = !out.sources.empty();
+    for (const auto& tr : out.tiers)
+        any = any || !tr.sources.empty();
+    if (!any)
+        fail("blocklist: must contain at least one path (in sources or a "
+             "[[blocklist.tier]])");
     return out;
 }
 

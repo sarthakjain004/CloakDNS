@@ -99,15 +99,28 @@ void blocklist_store(BlocklistPtr p) {
 Blocklist build_blocklist(const Config& cfg) {
     Blocklist out;
     size_t total = 0;
+    size_t source_count = 0;
     for (const auto& src : cfg.blocklist.sources) {
         total += out.load_hosts_file(src);
+        ++source_count;
+    }
+    // Named research tiers: load each tagged with its category so a block
+    // can be attributed to it in the query log.
+    for (const auto& tier : cfg.blocklist.tiers) {
+        for (const auto& src : tier.sources) {
+            total += out.load_hosts_file(src, tier.name);
+            ++source_count;
+        }
     }
     size_t allow = 0;
     for (const auto& src : cfg.allowlist.sources) {
         allow += out.load_allowlist_file(src);
     }
     std::cout << "loaded " << total << " block rule(s) from "
-              << cfg.blocklist.sources.size() << " source(s)";
+              << source_count << " source(s)";
+    if (!cfg.blocklist.tiers.empty()) {
+        std::cout << " (" << cfg.blocklist.tiers.size() << " tagged tier(s))";
+    }
     if (!cfg.allowlist.sources.empty()) {
         std::cout << ", " << allow << " allow rule(s) from "
                   << cfg.allowlist.sources.size() << " source(s)";
@@ -133,6 +146,7 @@ awaitable<void> handle(vector<byte> query_buf,
                           const string& qname,
                           uint16_t qtype,
                           string rule = "",
+                          string category = "",
                           vector<string> chain = {},
                           optional<string> upstream = nullopt,
                           optional<tls::EchStatus> ech = nullopt) {
@@ -142,6 +156,7 @@ awaitable<void> handle(vector<byte> query_buf,
         rec.qtype       = qtype;
         rec.action      = action;
         rec.rule        = std::move(rule);
+        rec.category    = std::move(category);
         rec.cname_chain = std::move(chain);
         rec.upstream    = std::move(upstream);
         rec.client      = cloak::to_string_via_stream(from);
@@ -182,7 +197,7 @@ awaitable<void> handle(vector<byte> query_buf,
             }
             std::cout << "block   " << qname << "  via " << hit.rule
                       << "  qtype=" << qtype << std::endl;
-            log_record(LogAction::Block, qname, qtype, hit.rule);
+            log_record(LogAction::Block, qname, qtype, hit.rule, hit.category);
             co_await sock.async_send_to(
                 asio::buffer(response), from, use_awaitable);
             co_return;
@@ -233,8 +248,8 @@ awaitable<void> handle(vector<byte> query_buf,
                     log_chain(std::cout, result.chain);
                     std::cout << std::endl;
                     log_record(LogAction::Uncloak, qname, qtype,
-                               result.hit.rule, result.chain, upstream_str,
-                               upstream_ech);
+                               result.hit.rule, result.hit.category,
+                               result.chain, upstream_str, upstream_ech);
                     break;
                 case UncloakStatus::Aborted:
                     response = build_servfail_response(query, msg);
@@ -242,7 +257,7 @@ awaitable<void> handle(vector<byte> query_buf,
                               << "  (" << result.abort_reason << ")"
                               << std::endl;
                     log_record(LogAction::ServFail, qname, qtype,
-                               result.abort_reason, {}, upstream_str,
+                               result.abort_reason, "", {}, upstream_str,
                                upstream_ech);
                     break;
                 case UncloakStatus::Clean:
@@ -254,15 +269,15 @@ awaitable<void> handle(vector<byte> query_buf,
                         log_chain(std::cout, result.chain);
                         std::cout << std::endl;
                         log_record(LogAction::Suspicious, qname, qtype,
-                                   "etldp1-cross:" + result.crossed_to,
+                                   "etldp1-cross:" + result.crossed_to, "",
                                    result.chain, upstream_str, upstream_ech);
                     } else {
                         std::cout << "forward " << qname;
                         if (result.chain.size() > 1)
                             log_chain(std::cout, result.chain);
                         std::cout << std::endl;
-                        log_record(LogAction::Allow, qname, qtype,
-                                   "", result.chain, upstream_str, upstream_ech);
+                        log_record(LogAction::Allow, qname, qtype, "", "",
+                                   result.chain, upstream_str, upstream_ech);
                     }
                     break;
                 }
@@ -270,8 +285,8 @@ awaitable<void> handle(vector<byte> query_buf,
                 try_cache_insert();
                 response = std::move(upstream_resp);
                 std::cout << "forward " << qname << "  qtype=" << qtype << std::endl;
-                log_record(LogAction::Allow, qname, qtype,
-                           "", {}, upstream_str, upstream_ech);
+                log_record(LogAction::Allow, qname, qtype, "", "", {},
+                           upstream_str, upstream_ech);
             }
         } catch (const exception& e) {
             response = build_servfail_response(query, msg);

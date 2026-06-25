@@ -80,7 +80,16 @@ struct UpstreamConfig {
 };
 
 struct BlocklistConfig {
+    // A named research tier: its domains are loaded and tagged with
+    // `name`, so a block can be attributed to it in the query log.
+    // Declared via [[blocklist.tier]] tables in the config.
+    struct Tier {
+        std::string                        name;
+        std::vector<std::filesystem::path> sources;
+    };
+    // Uncategorized core list(s). Blocks from these carry no category.
     std::vector<std::filesystem::path> sources{"blocklists/tier1.txt"};
+    std::vector<Tier>                  tiers;
 };
 
 struct AllowlistConfig {

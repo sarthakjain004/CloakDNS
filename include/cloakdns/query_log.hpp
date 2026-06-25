@@ -37,6 +37,11 @@ struct QueryLog {
     uint16_t                  qtype{};
     LogAction                 action{LogAction::Refuse};
     std::string               rule;          // empty unless Block/Uncloak
+    // Research tier that caught the rule (e.g. "syncing-hub",
+    // "server-side-endpoint"). Empty for the uncategorized core list and
+    // all non-block actions — the field is omitted from the JSONL line
+    // when empty. Schema v4.
+    std::string               category;
     std::vector<std::string>  cname_chain;   // empty unless chain was walked
     std::optional<std::string> upstream;      // "host:port" for upstream-hitting actions
     double                    latency_ms{};
@@ -108,7 +113,8 @@ private:
 // — or extends the LogAction value set, which the dashboard switches on.
 // v2: added LogAction::Suspicious for eTLD+1 cross signals (M13).
 // v3: added optional tls_ech_status field (Phase 2 of ECH completion).
-inline constexpr int kQueryLogSchemaVersion = 3;
+// v4: added optional category field (research-tier attribution).
+inline constexpr int kQueryLogSchemaVersion = 4;
 
 // Stable, deterministic obfuscated identifier for [logging] redact_client.
 // Implementation: FNV-1a 64-bit, top 32 bits → 8 hex chars, "hash:" prefix.

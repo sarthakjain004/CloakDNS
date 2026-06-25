@@ -19,17 +19,52 @@ padding_block_size = 128      # RFC 8467; 0 disables
 # NextDNS-CNAME and any optional feeds enabled in
 # tools/blocklist_sources.toml. Add `blocklists/merged.txt` here
 # after running the updater.
+# Uncategorized core list(s). Blocks from these carry no `category` in
+# the query log. Add "blocklists/merged.txt" here after running the updater.
 sources = [
     "blocklists/tier1.txt",
-    "tools/priority_tiers/fingerprinting.txt",
-    "tools/priority_tiers/cname_cloaking.txt",
-    "tools/priority_tiers/data_brokers.txt",
-    "tools/priority_tiers/cookie_syncing.txt",
-    "tools/priority_tiers/email_tracking.txt",
-    "tools/priority_tiers/server_side_apis.txt",
-    # "tools/priority_tiers/smart_device_telemetry.txt",  # opt-in: may break devices
-    # "blocklists/merged.txt",                            # uncomment after update_blocklists.py runs
+    # "blocklists/merged.txt",   # uncomment after update_blocklists.py runs
 ]
+
+# Named research tiers. Each tier's domains are loaded tagged with its
+# `name`, so a block is attributed to it in the query log
+# (`"category":"<name>"`) — which a flat list can't do. See
+# docs/research-roadmap.md for the paper backing each tier.
+[[blocklist.tier]]
+name    = "fingerprinting"
+sources = ["tools/priority_tiers/fingerprinting.txt"]
+
+[[blocklist.tier]]
+name    = "cname-cloaking"
+sources = ["tools/priority_tiers/cname_cloaking.txt"]
+
+[[blocklist.tier]]
+name    = "data-broker"
+sources = ["tools/priority_tiers/data_brokers.txt"]
+
+[[blocklist.tier]]
+name    = "syncing-hub"
+sources = ["tools/priority_tiers/cookie_syncing.txt"]
+
+[[blocklist.tier]]
+name    = "email-tracking"
+sources = ["tools/priority_tiers/email_tracking.txt"]
+
+[[blocklist.tier]]
+name    = "server-side-endpoint"
+sources = ["tools/priority_tiers/server_side_apis.txt"]
+
+[[blocklist.tier]]
+name    = "evercookie"
+sources = ["tools/priority_tiers/evercookies.txt"]
+
+[[blocklist.tier]]
+name    = "extension-exfil"
+sources = ["tools/priority_tiers/extension_exfiltration.txt"]
+
+# [[blocklist.tier]]   # opt-in: may break smart devices
+# name    = "smart-device"
+# sources = ["tools/priority_tiers/smart_device_telemetry.txt"]
 
 # Optional. Domains in any of these files override blocklist matches —
 # use for legitimate sites that share infra with trackers (e.g. specific

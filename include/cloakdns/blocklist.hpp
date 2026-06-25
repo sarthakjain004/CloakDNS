@@ -5,6 +5,7 @@
 #include <regex>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -17,6 +18,10 @@ struct MatchResult {
     bool blocked{};
     std::string rule;
     MatchKind kind{MatchKind::None};
+    // The research tier that caught this rule (e.g. "syncing-hub",
+    // "server-side-endpoint"). Empty for the uncategorized core list
+    // and for regex/allow paths. Set only on a block hit.
+    std::string category;
 };
 
 class Blocklist {
@@ -35,6 +40,14 @@ public:
     // lines are ignored. Malformed domains are silently skipped.
     // Returns the number of rules added.
     size_t load_hosts_file(const std::filesystem::path& path);
+
+    // Same as above, but every domain loaded is also tagged with
+    // `category` (a research-tier name). A later block on one of these
+    // domains carries the tag in MatchResult::category, so the query log
+    // can record *why* a domain was blocked, not just that it was. An
+    // empty category behaves exactly like the untagged overload.
+    size_t load_hosts_file(const std::filesystem::path& path,
+                           std::string_view category);
 
     // Same format as load_hosts_file, but rules go into the allowlist
     // (passthrough). Use for legitimate sites that share infra with
@@ -61,6 +74,10 @@ private:
     std::vector<std::pair<std::string, std::regex>> regex_;
     std::unordered_set<std::string> allow_exact_;
     std::unordered_set<std::string> allow_suffix_;
+    // rule-domain -> research tier name. Populated only by the
+    // categorized load_hosts_file overload; consulted only on a block
+    // hit, so the fast path is untouched.
+    std::unordered_map<std::string, std::string> category_;
 };
 
 } // namespace cloak
