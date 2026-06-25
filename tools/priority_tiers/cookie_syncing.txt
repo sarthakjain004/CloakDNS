@@ -16,6 +16,31 @@
 #   - Acar et al., "The Web Never Forgets" (CCS 2014)
 #   - Roesner et al., "Detecting and Defending Against Third-Party Tracking" (NSDI 2012)
 
+# ====================================================================
+# PRIORITY RECEIVERS — ranked by sync fan-out (block these first)
+# --------------------------------------------------------------------
+# Acar 2014 showed the damage concentrates at the high-prevalence
+# *receiver* of a sync, not the respawner: a weak respawner alone hit
+# ~1.4% of sites, but once its ID is passed to adnxs.com (~11% of
+# sites) the linkage explodes. Englehardt 2016 measured the fan-out.
+# These are ordered by reach so a trimmed list keeps the worst.
+#
+# NOTE: "rank" here is documentary ordering only — the engine blocks
+# all-or-nothing. Several of these also live in blocklists/tier1.txt;
+# listing them here (re)tags them with the "syncing-hub" category so a
+# block is attributed correctly in the query log.
+#
+#   doubleclick.net  — 108 cookies shared with 118 parties (Englehardt 2016)
+#   adverticum.net   — ID on 752 of the top 1k sites via 82 partners (Englehardt 2016, the single most promiscuous cookie)
+#   adnxs.com        — AppNexus/Xandr, top sync receiver, ~11% of sites (Acar 2014)
+#   rubiconproject.com, openx.net — major SSP sync hubs (Acar 2014)
+0.0.0.0 doubleclick.net
+0.0.0.0 adverticum.net
+0.0.0.0 adnxs.com
+0.0.0.0 rubiconproject.com
+0.0.0.0 openx.net
+# ====================================================================
+
 # Real-time bidding / SSP/DSP exchange infrastructure
 0.0.0.0 amazon-adsystem.com
 0.0.0.0 bidswitch.net

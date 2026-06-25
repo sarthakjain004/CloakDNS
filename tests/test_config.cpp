@@ -170,6 +170,59 @@ sources = []
 )"), ConfigError);
 }
 
+// ---------- named research tiers ([[blocklist.tier]]) ----------
+
+TEST(Config, NamedTierParses) {
+    auto c = parse_config_toml(R"(
+[blocklist]
+sources = ["blocklists/tier1.txt"]
+
+[[blocklist.tier]]
+name = "syncing-hub"
+sources = ["a.txt", "b.txt"]
+
+[[blocklist.tier]]
+name = "server-side-endpoint"
+sources = ["c.txt"]
+)");
+    ASSERT_EQ(c.blocklist.tiers.size(), 2u);
+    EXPECT_EQ(c.blocklist.tiers[0].name, "syncing-hub");
+    ASSERT_EQ(c.blocklist.tiers[0].sources.size(), 2u);
+    EXPECT_EQ(c.blocklist.tiers[0].sources[1].string(), "b.txt");
+    EXPECT_EQ(c.blocklist.tiers[1].name, "server-side-endpoint");
+    ASSERT_EQ(c.blocklist.tiers[1].sources.size(), 1u);
+}
+
+TEST(Config, TierMissingNameRejected) {
+    EXPECT_THROW(parse_config_toml(R"(
+[[blocklist.tier]]
+sources = ["a.txt"]
+)"), ConfigError);
+}
+
+TEST(Config, TierEmptySourcesRejected) {
+    EXPECT_THROW(parse_config_toml(R"(
+[[blocklist.tier]]
+name = "syncing-hub"
+sources = []
+)"), ConfigError);
+}
+
+TEST(Config, EmptyCoreSourcesAllowedWhenTierProvidesLoad) {
+    // A config can put all its paths in tiers and leave sources empty.
+    auto c = parse_config_toml(R"(
+[blocklist]
+sources = []
+
+[[blocklist.tier]]
+name = "syncing-hub"
+sources = ["a.txt"]
+)");
+    EXPECT_TRUE(c.blocklist.sources.empty());
+    ASSERT_EQ(c.blocklist.tiers.size(), 1u);
+    EXPECT_EQ(c.blocklist.tiers[0].name, "syncing-hub");
+}
+
 TEST(Config, CacheSweepNonPositiveRejected) {
     EXPECT_THROW(parse_config_toml(R"(
 [cache]

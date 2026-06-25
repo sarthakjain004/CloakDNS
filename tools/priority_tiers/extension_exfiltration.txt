@@ -47,6 +47,18 @@
 # We deliberately leave them out of the default tier to keep this list
 # specifically about extension-vendor-controlled exfil endpoints.
 
+# ---- Sentry error/performance telemetry ingest --------------------------
+# Arcanum 2024: 149 extensions bundle the Sentry Performance Monitoring
+# SDK, which collects the URL, device, and user agent on every page
+# visited — in at least one case shipping page *content* containing
+# sensitive user data to Sentry's servers. We block the per-org ingest
+# sinks (o<id>.ingest[.region].sentry.io, suffix-matched) where the data
+# actually lands, NOT the sentry.io apex, so the legitimate Sentry
+# dashboard/docs keep working.
+0.0.0.0 ingest.sentry.io
+0.0.0.0 ingest.us.sentry.io
+0.0.0.0 ingest.de.sentry.io
+
 # ---- Adware-injecting / search-hijacking extensions --------------------
 # Ad-injecting and search-redirecting extensions phone home to vendor
 # infrastructure for instructions and to ship visited-URLs back. Domains

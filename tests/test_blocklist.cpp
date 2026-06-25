@@ -214,6 +214,77 @@ TEST(BlocklistHosts, MissingFileThrows) {
                  runtime_error);
 }
 
+// ---- category attribution (named research tiers) ----
+
+TEST(BlocklistCategory, TaggedTierSetsCategory) {
+    auto p = make_temp_hosts("0.0.0.0 analytics.tiktok.com\n");
+    Blocklist bl;
+    EXPECT_EQ(bl.load_hosts_file(p, "server-side-endpoint"), 1u);
+    auto r = bl.match("analytics.tiktok.com");
+    EXPECT_TRUE(r.blocked);
+    EXPECT_EQ(r.category, "server-side-endpoint");
+}
+
+TEST(BlocklistCategory, CategoryPropagatesToSubdomainHit) {
+    auto p = make_temp_hosts("0.0.0.0 adnxs.com\n");
+    Blocklist bl;
+    bl.load_hosts_file(p, "syncing-hub");
+    auto r = bl.match("ib.adnxs.com");   // suffix hit on adnxs.com
+    EXPECT_TRUE(r.blocked);
+    EXPECT_EQ(r.rule, "adnxs.com");
+    EXPECT_EQ(r.category, "syncing-hub");
+}
+
+TEST(BlocklistCategory, UncategorizedSourceHasEmptyCategory) {
+    auto p = make_temp_hosts("0.0.0.0 plain.example.com\n");
+    Blocklist bl;
+    bl.load_hosts_file(p);   // untagged overload
+    auto r = bl.match("plain.example.com");
+    EXPECT_TRUE(r.blocked);
+    EXPECT_TRUE(r.category.empty());
+}
+
+TEST(BlocklistCategory, TaggedEvenWhenDomainAlreadyInCoreList) {
+    // A high-value domain can sit in both the uncategorized core list
+    // (loaded first) and a tier; it must still be attributed.
+    auto core = make_temp_hosts("0.0.0.0 doubleclick.net\n");
+    auto tier = make_temp_hosts("0.0.0.0 doubleclick.net\n");
+    Blocklist bl;
+    bl.load_hosts_file(core);                 // flat / untagged, first
+    bl.load_hosts_file(tier, "syncing-hub");  // tier, second — no new suffix
+    auto r = bl.match("ad.doubleclick.net");
+    EXPECT_TRUE(r.blocked);
+    EXPECT_EQ(r.category, "syncing-hub");
+}
+
+TEST(BlocklistCategory, FirstTierWinsOnCollision) {
+    auto t1 = make_temp_hosts("0.0.0.0 shared.example.com\n");
+    auto t2 = make_temp_hosts("0.0.0.0 shared.example.com\n");
+    Blocklist bl;
+    bl.load_hosts_file(t1, "fingerprinting");
+    bl.load_hosts_file(t2, "syncing-hub");
+    EXPECT_EQ(bl.match("shared.example.com").category, "fingerprinting");
+}
+
+TEST(BlocklistCategory, AllowlistStillOverridesTaggedRule) {
+    auto p = make_temp_hosts("0.0.0.0 cdn.example.com\n");
+    Blocklist bl;
+    bl.load_hosts_file(p, "fingerprinting");
+    bl.add_allow_exact("cdn.example.com");
+    auto r = bl.match("cdn.example.com");
+    EXPECT_FALSE(r.blocked);
+    EXPECT_TRUE(r.category.empty());   // allow path carries no category
+}
+
+TEST(BlocklistCategory, EmptyCategoryBehavesLikeUntaggedOverload) {
+    auto p = make_temp_hosts("0.0.0.0 x.example.com\n");
+    Blocklist bl;
+    EXPECT_EQ(bl.load_hosts_file(p, ""), 1u);
+    auto r = bl.match("x.example.com");
+    EXPECT_TRUE(r.blocked);
+    EXPECT_TRUE(r.category.empty());
+}
+
 // ---- allowlist (passthrough) ----
 
 TEST(Allowlist, ExactBeatsBlock) {

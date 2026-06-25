@@ -103,6 +103,23 @@ size_t Blocklist::load_hosts_file(const fs::path& path) {
     });
 }
 
+size_t Blocklist::load_hosts_file(const fs::path& path, string_view category) {
+    if (category.empty()) return load_hosts_file(path);
+    return load_hosts_into(path, [&](const string& tok) {
+        auto s = to_lower_ascii(tok);
+        if (!is_valid_domain(s)) return false;
+        const auto before = suffix_.size();
+        // Tag the category even when the suffix already exists — a
+        // high-value domain can sit in both the uncategorized core list
+        // (loaded first) and a tier; we still want the attribution.
+        // emplace keeps the first tier to claim a domain. The key is the
+        // normalized form, identical to what match() returns as the rule.
+        category_.emplace(s, string{category});
+        suffix_.insert(std::move(s));
+        return suffix_.size() != before;   // count only newly-added rules
+    });
+}
+
 size_t Blocklist::load_allowlist_file(const fs::path& path) {
     return load_hosts_into(path, [&](const string& tok) {
         const auto before = allow_suffix_.size();
@@ -170,20 +187,20 @@ MatchResult Blocklist::match(string_view qname) const {
     size_t deny_len = 0;
     if (auto it = exact_.find(string{qname}); it != exact_.end()) {
         deny_len = it->size();
-        deny = {true, *it, MatchKind::Exact};
+        deny = {true, *it, MatchKind::Exact, ""};
     }
     if (auto it = find_suffix_match(suffix_, qname); it != suffix_.end()) {
         if (it->size() > deny_len ||
             (it->size() == deny_len && deny.kind != MatchKind::Exact)) {
             deny_len = it->size();
-            deny = {true, *it, MatchKind::Suffix};
+            deny = {true, *it, MatchKind::Suffix, ""};
         }
     }
     if (deny_len == 0) {
         for (const auto& [pattern, rx] : regex_) {
             if (std::regex_search(string{qname}, rx)) {
                 deny_len = pattern.size();
-                deny = {true, pattern, MatchKind::Regex};
+                deny = {true, pattern, MatchKind::Regex, ""};
                 break;
             }
         }
@@ -196,6 +213,11 @@ MatchResult Blocklist::match(string_view qname) const {
         (void)allow_exact_hit;
         return {};
     }
+    // Block confirmed: attribute it to its research tier if known. One
+    // hash lookup, only on the block path. Keyed by deny.rule, which is
+    // the normalized suffix/exact string also used as the category_ key.
+    if (auto it = category_.find(deny.rule); it != category_.end())
+        deny.category = it->second;
     return deny;
 }
 

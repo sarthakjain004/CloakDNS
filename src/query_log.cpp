@@ -150,6 +150,10 @@ string to_json_line(const QueryLog& r) {
     out += R"(","rule":)";
     if (r.rule.empty()) out += "null";
     else                append_json_string(out, r.rule);
+    if (!r.category.empty()) {
+        out += R"(,"category":)";
+        append_json_string(out, r.category);
+    }
     out += R"(,"cname_chain":[)";
     for (size_t i = 0; i < r.cname_chain.size(); ++i) {
         if (i) out += ',';
